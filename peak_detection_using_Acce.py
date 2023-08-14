@@ -1,3 +1,18 @@
+# _*_ coding = utf-8 _*_
+'''
+date: 2023.07.22
+author: Yonglei Fan
+主要来进行航向以及步态的估计，和步长的估计
+'''
+from pdrParameters import pdrParameters
+import numpy as np
+import scipy.signal as signal
+from FYLReadData import *
+import matplotlib.pyplot as plt
+import os
+from geographiclib.geodesic import Geodesic
+import math
+
 def StepDetection_for_whole_data(Accedata):
     #首先对数据进行低通滤波处理
     acce_data = np.array(Accedata)
