@@ -49,7 +49,7 @@ def StepDetection_for_whole_data(Accedata):
             continue
 
         # 此时peak_valley[i]为波谷
-        if peak_valley[i-1] in peak_of_filter and (peak_valley[i] - peak_valley[i-1]) < 40:
+        if peak_valley[i-1] in peak_of_filter and (peak_valley[i] - peak_valley[i-1]) < 80:
             peak_TRUE.append(peak_valley[i-1])
             valley_TRUE.append(peak_valley[i])
     return peak_TRUE, valley_TRUE
