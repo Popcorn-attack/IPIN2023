@@ -19,7 +19,7 @@ def StepDetection_for_whole_data(Accedata):
     acce_x, acce_y, acce_z = acce_data[:, 2], acce_data[:, 3], acce_data[:, 4]
     acce_sqrt1 = (np.sqrt((acce_x ** 2 + acce_y ** 2 + acce_z ** 2)))
 
-    b, a = signal.butter(8, 0.1, 'low')
+    b, a = signal.butter(10, 0.06, 'low')
     filtered = signal.filtfilt(b, a, acce_sqrt1)
 
     peak_of_filter, _ = signal.find_peaks(filtered, distance=35, height=9.90) # 波峰位置
