@@ -22,9 +22,8 @@ def StepDetection_for_whole_data(Accedata):
     b, a = signal.butter(8, 0.1, 'low')
     filtered = signal.filtfilt(b, a, acce_sqrt1)
 
-    #然后对低通滤波后的数据进行波峰波谷检测
-    peak_of_filter, _ = signal.find_peaks(filtered, distance=30, prominence=1.5) # 波峰位置
-    valley_of_filter, _ = signal.find_peaks(-filtered, distance=30, prominence=1.5) # 波谷位置
+    peak_of_filter, _ = signal.find_peaks(filtered, distance=35, height=9.90) # 波峰位置
+    valley_of_filter, _ = signal.find_peaks(-filtered, distance=35, height=-9.60) # 波谷位置
 
     plt.figure()
     plt.plot(filtered)
