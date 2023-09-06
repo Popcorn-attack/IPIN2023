@@ -53,3 +53,21 @@ def StepDetection_for_whole_data(Accedata):
             peak_TRUE.append(peak_valley[i-1])
             valley_TRUE.append(peak_valley[i])
     return peak_TRUE, valley_TRUE
+
+# 计算两个点的方位角
+def calculate_bearing(x1, y1, x2, y2):
+    # 计算差值
+    delta_x = x2 - x1
+    delta_y = y2 - y1
+
+    # 计算方位角（弧度）
+    bearing_rad = math.atan2(delta_y, delta_x)
+
+    # 将弧度转换为度数
+    bearing_deg = math.degrees(bearing_rad)
+
+    # 调整方位角的范围为[0, 360)度
+    if bearing_deg < 0:
+        bearing_deg += 360
+
+    return bearing_deg
