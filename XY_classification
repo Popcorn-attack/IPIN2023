@@ -1,0 +1,180 @@
+import torch
+import torch.nn as nn
+
+import numpy as np
+import math
+import torch
+from torch.utils.data import Dataset, DataLoader
+import torch.nn as nn
+from sklearn.model_selection import train_test_split
+# from torchvision.models import VisionTransformer
+# from vit_pytorch import ViT
+from sklearn import svm
+from sklearn.svm import SVR
+from sklearn.metrics import accuracy_score
+import joblib
+class CustomDataset(Dataset):
+    def __init__(self, sequences, labels):
+        self.sequences = sequences
+        self.labels = labels
+
+    def __len__(self):
+        return len(self.sequences)
+
+    def __getitem__(self, idx):
+        sequence = self.sequences[idx]
+        label = self.labels[idx]
+
+        return sequence, label
+
+class LinearModel(nn.Module):
+    def __init__(self):
+        super(LinearModel, self).__init__()
+        self.linear = nn.Linear(8, 2)  # 输入维度为1，输出维度为1
+
+    def forward(self, x):
+        x = torch.unsqueeze(x, dim=1)
+        return self.linear(x)
+
+
+class my_conv(nn.Module):
+    def __init__(self):
+        super(my_conv, self).__init__()
+        self.conv = nn.Conv2d(in_channels=1, out_channels=16, kernel_size=3, stride=1, padding=1)
+        self.conv1 = nn.Conv2d(in_channels=16, out_channels=32, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3, stride=1, padding=1)
+        self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2)
+        self.relu = nn.ReLU()
+        # 定义一个transformer
+        # self.transformer = nn.Transformer(d_model=62, nhead=2, num_encoder_layers=4, num_decoder_layers=4, dim_feedforward=1024, dropout=0.1)
+        self.fc = nn.Linear(62 * 64 * 4, 103)
+    def forward(self,x):
+        x = x.unsqueeze(1)
+        batch_size=x.shape[0] 
+        x = self.conv(x)
+        x = self.relu(x)
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.conv2(x)
+        x = self.relu(x) # [320, 64, 128, 8]
+        x = self.maxpool(x) # [320, 64, 64, 4]
+        # x = self.transformermodel(x)
+        # x = x.permute(1, 0, 2)
+        # 将x进行展平
+        x = x.reshape(batch_size, 64*64*4)
+        x = self.fc(x)
+        # 将维度是1的维度去掉
+        x = x.squeeze(1)
+        return x
+
+
+
+class FeedForwardNN(nn.Module):
+    def __init__(self):
+        super(FeedForwardNN, self).__init__()
+        self.fc1 = nn.Linear(8, 10240)  # 第一个全连接层
+        self.relu = nn.ReLU()  # 激活函数
+        self.fc2 = nn.Linear(10240, 2560)  # 第二个全连接层
+        self.fc3 = nn.Linear(2560, 2)  # 第三个全连接层
+
+    def forward(self, x):
+        x = torch.unsqueeze(x, dim=1)
+        out = self.fc1(x)
+        out = self.relu(out)
+        out = self.fc2(out)
+        out = self.relu(out)
+        out = self.fc3(out)
+        return out
+
+
+def test():
+    # 加载x，y数据
+    x_list = np.load('experimental_csi.npy',allow_pickle=True)
+    y_list = np.load('experimental_label_xy.npy',allow_pickle=True)
+    custom_dataset = CustomDataset(x_list, y_list)
+    # 创建数据加载器
+    batch_size = 320
+    data_loader = DataLoader(custom_dataset, batch_size=batch_size, shuffle=True)
+    # 加载保存好的模型
+    input_dim = 1  # 输入维度为1
+    hidden_dim = 64  # 隐藏层维度
+    output_dim = 1  # 输出维度为1
+    model_nn = FeedForwardNN()
+    model_nn.double()
+    model_nn.load_state_dict(torch.load('model_20230816model_nn.ckpt'))
+    with torch.no_grad():
+        for data in data_loader:
+            x, y = data
+            outputs = model_nn(x)
+            print(outputs)
+            print(y)
+            print()
+
+if __name__ == '__main__':
+    # test()
+
+    # 加载x，y数据
+    x_list = np.load('training_csi.npy', allow_pickle=True)
+    y_list = np.load('training_classification.npy', allow_pickle=True)
+
+
+    # stert_range = 0
+    # end_range = 890000
+    # random_number = np.random.randint(stert_range, end_range, 10000)
+
+    x_train, x_test, y_train, y_test = train_test_split(x_list, y_list, test_size=0.2, random_state=42)
+
+    # 创建自定义数据集
+    custom_dataset = CustomDataset(x_train, y_train)
+
+    # 测试数据集
+    test_dataset = CustomDataset(x_test, y_test)
+
+    # 创建数据加载器
+    batch_size = 320
+    data_loader = DataLoader(custom_dataset, batch_size=batch_size, shuffle=True)
+
+    test_dataLoder = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+
+
+
+    # # 创建前馈神经网络模型实例
+    # model_nn = FeedForwardNN()
+    # model_nn.double()
+
+    # 创建线性模型实例
+    model_nn = my_conv()
+    model_nn.double()
+
+    # 定义损失函数和优化器
+    criterion = nn.CrossEntropyLoss()  # 使用均方误差损失
+    optimizer = torch.optim.Adam(model_nn.parameters(), lr=0.0001)  # 使用随机梯度下降优化器
+
+    # 训练模型
+    num_epochs = 10
+    for epoch in range(num_epochs):
+        for data in data_loader:
+            x, y = data
+            # 将标签转换为 LongTensor 类型
+            # y = y.long()
+            # 前向传播
+            outputs = model_nn(x)
+            # 计算损失函数
+            loss = criterion(outputs, y)
+            # 反向传播
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+        print('Epoch [{}/{}], Loss: {:.4f}'.format(epoch + 1, num_epochs, loss.item()))
+        torch.save(model_nn.state_dict(), 'model_20230816model_nn.ckpt')
+        # 测试模型
+        model_nn.eval()
+        with torch.no_grad():
+            for data in test_dataLoder:
+                x, y = data
+                outputs = model_nn(x)
+                # predicted = torch.round(outputs)
+                loss = criterion(outputs, y)
+            print('Epoch [{}/{}], Test Loss: {:.4f}'.format(epoch + 1, num_epochs, loss.item()))
+  # 评估模型
+  # ...
