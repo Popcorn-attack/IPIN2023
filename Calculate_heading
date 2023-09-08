@@ -1,0 +1,1975 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Jun  6 10:59:26 2019
+
+@author: Bang
+"""
+from poseComputation import poseEstimation, quatern2euler, euler2quatern
+from Preprocessing import find_data_using_timestamp
+import numpy as np
+import pandas as pd
+import math
+import copy
+
+def cal_Magnitude(data):
+    total = 0 
+    for i in data:
+        total += i**2
+    return np.sqrt(total)
+
+class angleTransfermation:
+    '''
+    这个类主要用于存储一些与角度转换有关的函数
+    '''
+    def eulerRadian2Degree(euler = [], angleType = 'd'):   
+        angles = copy.deepcopy(euler)
+        psi = np.array(angles)[:,2]
+        psi_new = []
+        for p in psi:
+            if angleType == 'd':
+                if math.degrees(p) >= 360:
+                    psi_new.append(math.degrees(p) - 360)
+                if math.degrees(p) < 0:
+                    psi_new.append(math.degrees(p) + 360)
+                else:
+                    psi_new.append(math.degrees(p))
+            if angleType == 'r':
+                if p >= 2 * math.pi:
+                    psi_new.append(p - 2 * math.pi)
+                if p < 0:
+                    psi_new.append(p + 2 * math.pi)
+                else:
+                    psi_new.append(p)
+        return psi_new
+
+    def euler2Degree_Radian(euler = 0.0, angleType = 'd'):
+        resul = 0.0
+        if angleType == 'd':
+            if math.degrees(euler) >= 360:
+                resul = math.degrees(euler) - 360
+            if math.degrees(euler) < 0:
+                resul = math.degrees(euler) + 360
+            else:
+                resul = math.degrees(euler)
+        if angleType == 'r':
+            if euler >= 2 * math.pi:
+                resul = euler - 2 * math.pi
+            if euler < 0:
+                resul = euler + 2 * math.pi
+            else:
+                resul = euler
+        
+        return resul
+
+    def RadianDegreeMutualTransfer(angle = 0.0, inputAngleType = 'r', outputAngleType = 'd'):
+        '''
+        Parameters:
+            angle: 表示角度的值
+            inputAngleType: 输入角度的类型， r表示弧度，d表示角度
+            outputAngleType: 输入角度的类型， r表示弧度，d表示角度
+        Tips:
+            这个函数主要的目的是实现角度单位之间的转换。
+        '''
+        resul = 0.0
+        if inputAngleType == 'r' and outputAngleType == 'd':
+            resul = math.degrees(angle) % 360   #不管angle的角度，都将换算到360度以内正角度
+        if inputAngleType == 'd' and outputAngleType == 'r':
+            resul = math.radians(angle) % (2 * math.pi)
+        if inputAngleType == 'd' and outputAngleType == 'd':
+            resul = angle % 360
+        if inputAngleType == 'r' and outputAngleType == 'r':
+            resul = angle % (2 * math.pi)
+        return resul
+
+    def angleRangeTransfer(angle = 0.0, inputAngleType = 'd', outputAngleType = 'd'):
+        '''
+        Parameters:
+            angle: 表示角度的值
+            inputAngleType: 输入角度的类型， r表示弧度，d表示角度
+            outputAngleType: 输入角度的类型， r表示弧度，d表示角度
+        Tips:
+            这个函数用于将0-360度的角度换算到0-正负180度：即360-180对应0到-180度
+        '''
+        resul = 0.0
+        resul = angleTransfermation.RadianDegreeMutualTransfer(angle, inputAngleType, 'd') #不管angle的角度，都将换算到360度以内正角度
+        print('resul', resul)
+        #进行区间换算
+        if resul > 180:
+            resul = resul - 360
+            print(resul)
+        if outputAngleType == 'd':
+            return resul
+        if outputAngleType == 'r':
+            return math.radians(resul)
+
+class headingOperation:
+    '''
+    这个类的功能主要是对航向角进行加，减以及求均值的运算。
+    特别注意：航向角的运算不是一般情况下的角度加减，航向必须要考虑顺时针转还是逆时针转。
+    '''    
+    def cal_AdditionOfTwoAngles(Angles = [1.0,2.0], outputAngleType = 'd'):
+        '''
+        it is used to calculate the difference between two angles.
+        two examples:
+            #print(pdrParameters().cal_AdditionOfTwoAngles(Angles=[-100,-10])) :-110
+            #print(pdrParameters().cal_AdditionOfTwoAngles(Angles=[100,10])) :110
+            #print(pdrParameters().cal_AdditionOfTwoAngles(Angles=[300,100])) : 40
+        Parameters:
+            Angles: 要计算的角度，输入的角度必须是以角度为单位。
+            outputAngleType: 输出的角度的类型，r表示弧度，d表示角度
+        '''       
+        if len(Angles) != 2:
+            raise ValueError("The size of input should be two!")
+        sumAngle = 0
+        if Angles[0] >= 0 and Angles[1] >= 0:
+            sumAngle = (Angles[0] + Angles[1]) % 360
+        elif Angles[0] <= 0 and Angles[1] <= 0:
+            sumAngle = (Angles[0] + Angles[1]) % 360
+        else:            
+            raise ValueError("The symbol of two angles should be the same!")
+        
+        if outputAngleType == 'd':
+            return sumAngle
+        if outputAngleType == 'r':
+            return math.radians(sumAngle)    
+    
+    def cal_DifferenceOfTwoAngles(Angles = [1.0,2.0], outputAngleType = 'd'):
+        '''
+        it is used to calculate the difference between two angles.
+        two examples:
+            #print(pdrParameters().cal_DifferenceOfTwoAngles(Angles=[310,20])) :70   
+            print(pdrParameters().cal_DifferenceOfTwoAngles(Angles=[10,20])) : 10
+            print(pdrParameters().cal_DifferenceOfTwoAngles(Angles=[20,10])) :-10
+        Parameters:
+            Angles: 要计算的角度，输入的角度必须是以角度为单位。
+            outputAngleType: 输出的角度的类型，r表示弧度，d表示角度
+        Tips:
+            两个角度之差，在顺时针时为正，在逆时针时未负
+        '''               
+        if len(Angles)!= 2:
+            raise ValueError("The size of input should be two!")
+        
+        difference = 0
+        if Angles[0] * Angles[1] < 0:
+            difference = headingOperation.cal_AdditionOfTwoAngles([Angles[0], -Angles[1]])  #不管正负，角度最终会换算到0-360度之间
+        else: #当两个角度同号或者为0时，先将角度都换算到0-360度            
+            an1 = angleTransfermation.RadianDegreeMutualTransfer(Angles[0],'d','d')
+            an2 = angleTransfermation.RadianDegreeMutualTransfer(Angles[1],'d','d')    
+            ''' the contious difference between two angle is within 180'''
+            average = headingOperation.cal_AverageOfTwoAngles([an1, an2], outputAngleType)
+            difference = 2 * abs(average - an1) if abs(average - an1) < 90 else 2 * abs(average - an2)
+            #clockwise 顺时针
+            if an1 > an2 > average or average > an1 > an2 or an2 > average > an1:
+                difference = difference
+            #count clockwise
+            if an2 > an1 > average or average > an2 > an1 or an1 > average > an2:
+                difference = -difference    
+            
+        if outputAngleType == 'd':
+            return difference
+        if outputAngleType == 'r':
+            return math.radians(difference)
+    
+    
+    def cal_AverageOfTwoAngles(Angles = [1.0,2.0], outputAngleType = 'd'):
+        '''
+        Parameters:
+            Angles: 要计算的角度，输入的角度必须是以角度为单位。
+            outputAngleType: 输出的角度的类型，r表示弧度，d表示角度
+        Tips:
+            计算两个角度的平均值时，以第一个角度作为参考值，第二个角度是由第一个角度转若干角度后得到。一个很重要的限制是两个角度差不能超过180度
+            即：第二个角度可能由第一角度顺时针或逆时针转若干角度，最终以转角小于180度的方向为准。
+        '''
+        if len(Angles) != 2:
+            raise ValueError("The size of input should be two!")
+        average = 0.0
+        #当输入的角度为负时,或者超过360时，角度会换算成0-360之间的角度然后在进行求平均
+        an1 = angleTransfermation.RadianDegreeMutualTransfer(Angles[0],'d','d')
+        an2 = angleTransfermation.RadianDegreeMutualTransfer(Angles[1],'d','d')
+        if abs(an1 - an2) <= 180: #不管逆时针还是顺时针，当两个角度直接相减小于180时，说明均值就在两个角度之间
+            average = (an1 + an2) / 2.0        
+        else: #当两个角度之差大于180度时，以第一个角度作为参考
+            average = (an1 + an2) / 2.0 + 180 if (an1 + an2) / 2.0 + 180 <= 360 else (an1 + an2) / 2.0 - 180       
+            
+        if outputAngleType == 'd':
+            return average
+        if outputAngleType == 'r':
+            return math.radians(average)            
+        
+    def cal_AverageOfAngles(Angles = [1.0, 2.0, 3.0], outputAngleType = 'd'):
+        '''
+        The Average of angles is not strictly the mean of two angles
+        We need to consider the circumunstance when the difference between them is beyond 180
+        Attention: the order of two angles matters. and the rule of to average them is the change should not beyond 180
+        也就是角度的瞬间变化不能超过180°. 为了帮助理解，可以将求角度的均值理解为：第一个角作为初始角，然后判断是顺时针还是逆时针即可。
+        判断顺时针还是逆时针的方法是：均值角在起始角的左边还是右边，如果均值角在起始角左边，则说明是逆时针在运动。反之则为顺时针。        
+        Parameters:
+            Angles: 要计算的角度，输入的角度必须是以角度为单位。 此函数可以计算多个角度的均值
+            outputAngleType: 输出的角度的类型，r表示弧度，d表示角度
+        Tips:
+            多角度计算平均值的方法：
+            1）就是以前一个角度为参考，如下代码所示。            
+        '''
+        average = 0.0
+        if len(Angles) < 1:
+            raise ValueError("The size of input should be at least one!")
+        if len(Angles) == 1:
+            average = angleTransfermation.RadianDegreeMutualTransfer(Angles[0],'d','d')
+        if len(Angles) == 2:
+            average = headingOperation.cal_AverageOfTwoAngles(Angles, outputAngleType)
+        if len(Angles) > 2:
+#            #求角度平均方法之一
+#            '''As the angle is time-related, so the average refers to the first angle'''
+            lastAngle = Angles[0]
+            sumAngle = Angles[0]
+            for i in range(1, len(Angles)):
+                diff = headingOperation.cal_DifferenceOfTwoAngles([Angles[i-1], Angles[i]])
+                lastAngle = lastAngle + diff
+                sumAngle = sumAngle + lastAngle
+#                print('diff+lastAngle+sumAngle', diff,lastAngle, sumAngle)
+            average = sumAngle / len(Angles) * 1.0  
+        
+        average = average % 360        
+                
+        if outputAngleType == 'd':
+            return average
+        if outputAngleType == 'r':
+            return math.radians(average)
+
+
+    def cal_StandardErrorOfAngles(Angles = [1.0, 2.0, 3.0], outputAngleType = 'd'):
+        '''
+        Parameters:
+            Angles: 要计算的角度，输入的角度必须是以角度为单位。 此函数可以计算多个角度的均值
+            outputAngleType： 输出的角度的类型，r表示弧度，d表示角度
+        '''
+        #首先计算角度的平均值
+        mean = headingOperation.cal_AverageOfAngles(Angles, outputAngleType)
+        #计算角度的方差
+        variance = 0
+        for angle in Angles:
+            angle = angleTransfermation.RadianDegreeMutualTransfer(angle, inputAngleType = 'd', outputAngleType = 'd')
+#            print('angle,mean', angle,mean, headingOperation.cal_DifferenceOfTwoAngles([angle, mean], 'd'),abs(headingOperation.cal_DifferenceOfTwoAngles([angle, mean], 'd'))**2)
+            variance += abs(headingOperation.cal_DifferenceOfTwoAngles([angle, mean], 'd'))**2
+                        
+        std = np.sqrt(variance*1.0/len(Angles))
+        return std #mean, std
+    
+    def cal_DifferenceOfAngleList(Angles = [1.0, 2.0, 3.0], outputAngleType = 'd'):
+        '''
+        主要是计算一列角度前后之间的差，也就是一阶导数
+        '''
+        diff = []
+        for i in range(1, len(Angles)):
+            diff.append(headingOperation.cal_DifferenceOfTwoAngles([Angles[i-1], Angles[i]]))
+        
+        return diff
+    
+    
+#对角度进行归一化
+class angleScale:
+    def smoothAngles(angles = []):
+        '''
+        函数功能：对一串角度进行进行连续化处理。因为角度始终在360以内，非连续变化，于是进行连续化处理
+        '''
+        for i in range(1, len(angles)-1): #去头去尾 
+            if abs(abs(angles[i-1] - angles[i]) - abs(angles[i] - angles[i+1]))>= 180:   #因为角度范围是360度，超过360度的会强制转换到0-360
+                #存在角度转换，然后判断角度转换的位置
+                if abs(angles[i-1] - angles[i]) > abs(angles[i] - angles[i+1]): #发生在当前点
+                    if angles[i-1] - angles[i] > 0: #则说明是在上升，则发生角度转换的位置是在360度
+                        #则将后面数据每个都加上360
+                        for ii in range(i, len(angles)):
+                            angles[ii] += 360            
+                    else: #则说明是在下降，则发生角度转换的位置是在0度
+                        for ii in range(i, len(angles)):
+                            angles[ii] -= 360 
+                elif abs(angles[i-1] - angles[i]) < abs(angles[i] - angles[i+1]): #发生在当前时刻的下一时刻
+                    if angles[i] - angles[i+1] > 0: #则说明是在上升，则发生角度转换的位置是在360度
+                        for ii in range(i+1, len(angles)):
+                            angles[ii] += 360 
+                    else: #则说明是在下降，则发生角度转换的位置是在0度
+                        for ii in range(i+1, len(angles)):
+                            angles[ii] -= 360 
+                 
+        return angles
+    
+    def ZeroOneScale(angles = [], Type = 2):
+        '''
+        函数功能：对一串角度进行0,1归一化
+        '''
+#        angle_copy = copy.deepcopy(angles) 
+#        trans = []
+        for i in range(1, len(angles)-1): #去头去尾 
+            if abs(abs(angles[i-1] - angles[i]) - abs(angles[i] - angles[i+1]))>= 180:   #因为角度范围是360度，超过360度的会强制转换到0-360
+                #存在角度转换，然后判断角度转换的位置
+                if abs(angles[i-1] - angles[i]) > abs(angles[i] - angles[i+1]): #发生在当前点
+                    if angles[i-1] - angles[i] > 0: #则说明是在上升，则发生角度转换的位置是在360度
+                        #则将后面数据每个都加上360
+                        for ii in range(i, len(angles)):
+                            angles[ii] += 360            
+                    else: #则说明是在下降，则发生角度转换的位置是在0度
+                        for ii in range(i, len(angles)):
+                            angles[ii] -= 360 
+                elif abs(angles[i-1] - angles[i]) < abs(angles[i] - angles[i+1]): #发生在当前时刻的下一时刻
+                    if angles[i] - angles[i+1] > 0: #则说明是在上升，则发生角度转换的位置是在360度
+                        for ii in range(i+1, len(angles)):
+                            angles[ii] += 360 
+                    else: #则说明是在下降，则发生角度转换的位置是在0度
+                        for ii in range(i+1, len(angles)):
+                            angles[ii] -= 360 
+
+        #角度现在都是连续变化了
+        min_angle = np.min(angles)
+        max_angle = np.max(angles)
+        if min_angle != max_angle:
+            angles_n = [] 
+            for an in angles:
+                if Type == 0:
+                    angles_n.append((an - min_angle)/(max_angle - min_angle))  #max_angle - min_angle  360 /(360)
+                if Type == 1:
+                    angles_n.append((an - min_angle)/(1.0))  #max_angle - min_angle  
+                if Type == 2:
+                    angles_n.append((an - min_angle)/(360.0))  #max_angle - min_angle  360 /(360)
+                 
+        return angles_n
+
+
+    
+class pdrParameters:
+    '''
+    对航向解算增加了卡尔曼滤波算法，于是进行了更新，更新时间20200328；新版本在下面
+    '''
+    def cal_OrientationLog_oldtype(self, raw_total_data_dic = {}, method = 'mahony', angleType = 'd', samplePeriod = 0.02, mgAxis='x', Kp=0.5, Ki=0.0, beta=0.1, angle_cor = 0):  
+        '''
+        功能：
+            此函数功能是利用IMU对航向角进行解算。解算的方法有两种MahonyAHRS和MadgwickAHRS
+            加速度计和磁力计主要是用于校正陀螺仪积分求解姿态角
+            AHRS是从手机传感器中直接记录得到的旋转矢量，因为姿态是从一个给定的初始角度（或者初始四元素）进行解算的，因此需要
+            给姿态结算提供一个初始角度，而ahrs中的旋转矢量可以提供初值
+            在进行姿态解算时，由于整个过程是以陀螺仪积分为主，加速度和磁力计进行校正，那么所求的航向的时间轴以陀螺仪的轴相同
+        Parameters:
+            acce: 加速度计测量值的list,在姿态计算中用于获取俯仰roll和横滚pitch
+            magn: 磁力计测量值的list,在姿态计算中用于获取磁航向角yaw
+            gyro: 陀螺仪测量值的list,用于积分求解旋转角
+            ahrs: 存储旋转矢量的list，旋转矢量可以与四元素，欧拉角和旋转矩阵互换。这里主要用于提供四元素的初值
+            method: 等于 'mahony' or 'madgwick' 表示用哪种方法进行姿态解算，MahonyAHRS和MadgwickAHRS
+            angleType: 航向角的输出类型，可以是弧度也可以是角度
+            samplePeriod:陀螺仪的采样周期，即多长时间采样一次
+            mgAxis: 表示磁场的航向方向是哪一个轴，一般来说，水平时y轴为航向，此时解算主轴是x轴
+            Kp: 这个参数属于MahonyAHRS方法，它是用来控制梯度下降的学习率，默认取0.5
+            Ki: 这个参数属于MahonyAHRS方法，它表示是否对陀螺仪进行校正，默认取0
+            Beta: 这个参数属于MadgwickAHRS方法，它表示用来控制梯度下降的学习率，默认取0.1
+        Results:
+            OrientationLog: apptime,sensortime, phi, theta, heading[47.255, 52093.312, 158.711, -3.93, -0.9]    
+        '''    
+        
+        gyroLog = raw_total_data_dic['gyro']
+    #    acceLog = raw_total_data_dic['acce']
+        magnLog = raw_total_data_dic['magn']   
+        gravLog = raw_total_data_dic['acce']  #因为最初开始采集数据的时候没有重力，所以暂时用加速度代替
+#        gravLog = raw_total_data_dic['grav']
+        
+        grav_resample = []
+        magn_resample = []
+        
+        grav_index = 0
+        magn_index = 0
+        
+        interval = 100
+        for gyro in raw_total_data_dic['gyro']:
+            if grav_index + interval <= len(gravLog):        
+                gra_temp, temp_index = find_data_using_timestamp(objectData = gravLog[grav_index:grav_index + interval], timestamp = gyro[1], timeType = 1)
+            elif grav_index + interval > len(gravLog) and grav_index < len(gravLog):
+                gra_temp, temp_index = find_data_using_timestamp(objectData = gravLog[grav_index:len(gravLog)], timestamp = gyro[1], timeType = 1)
+                    
+            grav_index = grav_index + temp_index
+            grav_resample.append(gra_temp)
+
+            if magn_index + interval <= len(magnLog):        
+                mag_temp, temp_index = find_data_using_timestamp(objectData = magnLog[magn_index:magn_index+interval], timestamp = gyro[1], timeType = 1)
+            elif magn_index + interval > len(magnLog) and magn_index < len(magnLog):
+                mag_temp, temp_index = find_data_using_timestamp(objectData = magnLog[magn_index:len(magnLog)], timestamp = gyro[1], timeType = 1)
+
+            magn_index = magn_index + temp_index
+            magn_resample.append(mag_temp)
+        
+        ahrs = [0, 0, 1, 0, 0, 0, 0] #换成欧拉角后为[0.0, -0.0, 0.0],表示将初始方向始终设置为0，需要用起始航向来校正
+                
+        angle_cor = math.radians(angle_cor)
+        mainAxis = mgAxis
+        q = ahrs[2:6]
+        init_Epoch = gyroLog[0][1] - samplePeriod
+        quaternion = []
+        orientationLog = []
+        for a, g, m in zip(grav_resample, gyroLog, magn_resample):
+            samplePeriod = g[1] - init_Epoch
+            samplePeriod = 0.02
+            if method == 'mahony':
+                q = poseEstimation.MahonyAHRS_IMU(g[2:5], a[2:5], m[2:5], q, mgAxis = mainAxis, twoKp = Kp, twoKi = Ki, samplePeriod = samplePeriod)
+            if method == 'madgwick':
+                q = poseEstimation.MadgwickAHRS_IMU(g[2:5], a[2:5], m[2:5], q, mgAxis = mainAxis, Beta = beta, samplePeriod = samplePeriod)
+                      
+            quaternion.append(q)
+            eu = quatern2euler(q)
+            phi = angleTransfermation.RadianDegreeMutualTransfer(eu[0], inputAngleType = 'r', outputAngleType = 'd')    
+            theta = angleTransfermation.RadianDegreeMutualTransfer(eu[1], inputAngleType = 'r', outputAngleType = 'd') 
+            heading = angleTransfermation.RadianDegreeMutualTransfer(eu[2] - angle_cor, inputAngleType = 'r', outputAngleType = 'd') #yaw
+            orientationLog.append([g[0], g[1], phi, theta, heading])   #heading就是psi
+            init_Epoch = g[1]      
+        
+        return orientationLog
+
+    def cal_OrientationLog(self, raw_total_data_dic={}, method='mahony', angleType='d', samplePeriod=0.02, mgAxis='x', Kp=0.5, Ki=0.0, beta=0.1, angle_cor=0):
+        '''
+        功能：
+            此函数功能是利用IMU对航向角进行解算。解算的方法有两种MahonyAHRS和MadgwickAHRS
+            加速度计和磁力计主要是用于校正陀螺仪积分求解姿态角
+            AHRS是从手机传感器中直接记录得到的旋转矢量，因为姿态是从一个给定的初始角度（或者初始四元素）进行解算的，因此需要
+            给姿态结算提供一个初始角度，而ahrs中的旋转矢量可以提供初值
+            在进行姿态解算时，由于整个过程是以陀螺仪积分为主，加速度和磁力计进行校正，那么所求的航向的时间轴以陀螺仪的轴相同
+        Parameters:
+            acce: 加速度计测量值的list,在姿态计算中用于获取俯仰roll和横滚pitch
+            magn: 磁力计测量值的list,在姿态计算中用于获取磁航向角yaw
+            gyro: 陀螺仪测量值的list,用于积分求解旋转角
+            ahrs: 存储旋转矢量的list，旋转矢量可以与四元素，欧拉角和旋转矩阵互换。这里主要用于提供四元素的初值
+            method: 等于 'mahony' or 'madgwick' 表示用哪种方法进行姿态解算，MahonyAHRS和MadgwickAHRS
+            angleType: 航向角的输出类型，可以是弧度也可以是角度
+            samplePeriod:陀螺仪的采样周期，即多长时间采样一次
+            mgAxis: 表示磁场的航向方向是哪一个轴，一般来说，水平时y轴为航向，此时解算主轴是x轴
+            Kp: 这个参数属于MahonyAHRS方法，它是用来控制梯度下降的学习率，默认取0.5
+            Ki: 这个参数属于MahonyAHRS方法，它表示是否对陀螺仪进行校正，默认取0
+            Beta: 这个参数属于MadgwickAHRS方法，它表示用来控制梯度下降的学习率，默认取0.1
+        Results:
+            OrientationLog: apptime,sensortime, phi, theta, heading[47.255, 52093.312, 158.711, -3.93, -0.9]
+        '''
+
+        gyroLog = raw_total_data_dic['gyro']
+        #    acceLog = raw_total_data_dic['acce']
+        magnLog = raw_total_data_dic['magn']
+        gravLog = raw_total_data_dic['acce']  # 因为最初开始采集数据的时候没有重力，所以暂时用加速度代替
+        #        gravLog = raw_total_data_dic['grav']
+
+        grav_resample = []
+        magn_resample = []
+
+        grav_index = 0
+        magn_index = 0
+
+        interval = 100
+        for gyro in raw_total_data_dic['gyro']:
+            if grav_index + interval <= len(gravLog):
+                gra_temp, temp_index = find_data_using_timestamp(objectData=gravLog[grav_index:grav_index + interval], timestamp=gyro[1], timeType=1)
+            elif grav_index + interval > len(gravLog) and grav_index < len(gravLog):
+                gra_temp, temp_index = find_data_using_timestamp(objectData=gravLog[grav_index:len(gravLog)],
+                                                                 timestamp=gyro[1], timeType=1)
+
+            grav_index = grav_index + temp_index
+            grav_resample.append(gra_temp)
+
+            if magn_index + interval <= len(magnLog):
+                mag_temp, temp_index = find_data_using_timestamp(
+                    objectData=magnLog[magn_index:magn_index + interval], timestamp=gyro[1], timeType=1)
+            elif magn_index + interval > len(magnLog) and magn_index < len(magnLog):
+                mag_temp, temp_index = find_data_using_timestamp(objectData=magnLog[magn_index:len(magnLog)],
+                                                                 timestamp=gyro[1], timeType=1)
+
+            magn_index = magn_index + temp_index
+            magn_resample.append(mag_temp)
+
+        ahrs = [0, 0, 1, 0, 0, 0, 0]  # 换成欧拉角后为[0.0, -0.0, 0.0],表示将初始方向始终设置为0，需要用起始航向来校正
+
+        angle_cor = math.radians(angle_cor)
+        mainAxis = mgAxis
+        q = ahrs[2:6]
+        init_Epoch = gyroLog[0][1] - samplePeriod
+        quaternion = []
+        orientationLog = []
+        Pk = np.eye(4)  # kalman 方法必须参数
+        for a, g, m in zip(grav_resample, gyroLog, magn_resample):
+            samplePeriod = g[1] - init_Epoch
+            #            samplePeriod = 0.02
+            if method == 'mahony':
+                q = poseEstimation.MahonyAHRS_IMU(g[2:5], a[2:5], m[2:5], q, mgAxis=mainAxis, twoKp=Kp, twoKi=Ki,
+                                                  samplePeriod=samplePeriod)
+            if method == 'madgwick':
+                q = poseEstimation.MadgwickAHRS_IMU(g[2:5], a[2:5], m[2:5], q, mgAxis=mainAxis, Beta=beta,
+                                                    samplePeriod=samplePeriod)
+            if method == 'kalman':
+                q, Pk = poseEstimation.KalmanFilter_IMU(g[2:5], a[2:5], m[2:5], q, Pk, samplePeriod=samplePeriod)
+
+            quaternion.append(q)
+            eu = quatern2euler(q)
+            #            phi = angleTransfermation.RadianDegreeMutualTransfer(eu[0], inputAngleType = 'r', outputAngleType = 'd')
+            #            theta = angleTransfermation.RadianDegreeMutualTransfer(eu[1], inputAngleType = 'r', outputAngleType = 'd')
+            heading = angleTransfermation.RadianDegreeMutualTransfer(eu[2] - angle_cor, inputAngleType='r',
+                                                                     outputAngleType='d')  # yaw
+            orientationLog.append([g[0], g[1], eu[0], eu[1], heading])  # heading就是psi
+            init_Epoch = g[1]
+
+        return orientationLog
+
+    def cal_OrientationLog_Point5_Sample(self, raw_total_data_dic={}, method='mahony', angleType='d', samplePeriod=0.02, mgAxis='x', Kp=0.5, Ki=0.0, beta=0.1, angle_cor=0, q = [1, 0, 0, 0] ):
+        '''
+        功能：
+            IPIN 2022，主要的功能是对每一个0.5秒的样本进行角度预测，并且包含一个校正的过程。
+            此函数功能是利用IMU对航向角进行解算。解算的方法有两种MahonyAHRS和MadgwickAHRS
+            加速度计和磁力计主要是用于校正陀螺仪积分求解姿态角
+            AHRS是从手机传感器中直接记录得到的旋转矢量，因为姿态是从一个给定的初始角度（或者初始四元素）进行解算的，因此需要
+            给姿态结算提供一个初始角度，而ahrs中的旋转矢量可以提供初值
+            在进行姿态解算时，由于整个过程是以陀螺仪积分为主，加速度和磁力计进行校正，那么所求的航向的时间轴以陀螺仪的轴相同
+        Parameters:
+            acce: 加速度计测量值的list,在姿态计算中用于获取俯仰roll和横滚pitch
+            magn: 磁力计测量值的list,在姿态计算中用于获取磁航向角yaw
+            gyro: 陀螺仪测量值的list,用于积分求解旋转角
+            ahrs: 存储旋转矢量的list，旋转矢量可以与四元素，欧拉角和旋转矩阵互换。这里主要用于提供四元素的初值
+            method: 等于 'mahony' or 'madgwick' 表示用哪种方法进行姿态解算，MahonyAHRS和MadgwickAHRS
+            angleType: 航向角的输出类型，可以是弧度也可以是角度
+            samplePeriod:陀螺仪的采样周期，即多长时间采样一次
+            mgAxis: 表示磁场的航向方向是哪一个轴，一般来说，水平时y轴为航向，此时解算主轴是x轴
+            Kp: 这个参数属于MahonyAHRS方法，它是用来控制梯度下降的学习率，默认取0.5
+            Ki: 这个参数属于MahonyAHRS方法，它表示是否对陀螺仪进行校正，默认取0
+            Beta: 这个参数属于MadgwickAHRS方法，它表示用来控制梯度下降的学习率，默认取0.1
+        Results:
+            OrientationLog: apptime,sensortime, phi, theta, heading[47.255, 52093.312, 158.711, -3.93, -0.9]
+        '''
+
+        gyroLog = raw_total_data_dic['gyro']
+        #    acceLog = raw_total_data_dic['acce']
+        magnLog = raw_total_data_dic['magn']
+        gravLog = raw_total_data_dic['acce']  # 因为最初开始采集数据的时候没有重力，所以暂时用加速度代替
+        #        gravLog = raw_total_data_dic['grav']
+
+        grav_resample = []
+        magn_resample = []
+
+        grav_index = 0
+        magn_index = 0
+
+        interval = 100
+        for gyro in raw_total_data_dic['gyro']:
+            if grav_index + interval <= len(gravLog):
+                gra_temp, temp_index = find_data_using_timestamp(objectData=gravLog[grav_index:grav_index + interval], timestamp=gyro[1], timeType=1)
+            elif grav_index + interval > len(gravLog) and grav_index < len(gravLog):
+                gra_temp, temp_index = find_data_using_timestamp(objectData=gravLog[grav_index:len(gravLog)],
+                                                                 timestamp=gyro[1], timeType=1)
+
+            grav_index = grav_index + temp_index
+            grav_resample.append(gra_temp)
+
+            global mag_temp
+            if magn_index + interval <= len(magnLog):
+                mag_temp, temp_index = find_data_using_timestamp(
+                    objectData=magnLog[magn_index:magn_index + interval], timestamp=gyro[1], timeType=1)
+            elif magn_index + interval > len(magnLog) and magn_index < len(magnLog):
+                mag_temp, temp_index = find_data_using_timestamp(objectData=magnLog[magn_index:len(magnLog)],
+                                                                 timestamp=gyro[1], timeType=1)
+
+            magn_index = magn_index + temp_index
+            magn_resample.append(mag_temp)
+
+        # ahrs = [0, 0, 1, 0, 0, 0, 0]  # 换成欧拉角后为[0.0, -0.0, 0.0],表示将初始方向始终设置为0，需要用起始航向来校正
+
+        angle_cor = math.radians(angle_cor)
+        mainAxis = mgAxis
+        # q = ahrs[2:6]
+        init_Epoch = gyroLog[0][1] - samplePeriod
+        quaternion = []
+        orientationLog = []
+        Pk = np.eye(4)  # kalman 方法必须参数
+        for a, g, m in zip(grav_resample, gyroLog, magn_resample):
+            samplePeriod = g[1] - init_Epoch
+            #            samplePeriod = 0.02
+            if method == 'mahony':
+                q = poseEstimation.MahonyAHRS_IMU(g[2:5], a[2:5], m[2:5], q, mgAxis=mainAxis, twoKp=Kp, twoKi=Ki,
+                                                  samplePeriod=samplePeriod)
+            if method == 'madgwick':
+                q = poseEstimation.MadgwickAHRS_IMU(g[2:5], a[2:5], m[2:5], q, mgAxis=mainAxis, Beta=beta,
+                                                    samplePeriod=samplePeriod)
+            if method == 'kalman':
+                q, Pk = poseEstimation.KalmanFilter_IMU(g[2:5], a[2:5], m[2:5], q, Pk, samplePeriod=samplePeriod)
+
+            quaternion.append(q)
+            eu = quatern2euler(q)
+            #            phi = angleTransfermation.RadianDegreeMutualTransfer(eu[0], inputAngleType = 'r', outputAngleType = 'd')
+            #            theta = angleTransfermation.RadianDegreeMutualTransfer(eu[1], inputAngleType = 'r', outputAngleType = 'd')
+            heading = angleTransfermation.RadianDegreeMutualTransfer(eu[2] - angle_cor, inputAngleType='r',
+                                                                     outputAngleType='d')  # yaw
+            orientationLog.append([g[0], g[1], eu[0], eu[1], heading])  # heading就是psi
+            init_Epoch = g[1]
+
+        return orientationLog, q
+
+        
+    
+    def cal_OrientationLogFromCompass(self, raw_total_data_dic = {}, outputAngleType = 'd', angle_cor = 0):  
+        '''
+        功能：
+            此函数功能是利用IMU对航向角进行解算。
+            相比函数cal_OrientationLog，此函数只利用了重力计和磁力计，计算出欧拉角。
+        Parameters:
+            
+        Results:
+            OrientationLog: apptime,sensortime,heading,pitch/roll[47.255, 52093.312, 158.711, -3.93, -0.9]    
+        '''    
+        magnLog = raw_total_data_dic['magn']   
+#        gravLog = raw_total_data_dic['acce']  #因为最初开始采集数据的时候没有重力，所以暂时用加速度代替
+        gravLog = raw_total_data_dic['grav']
+        
+        grav_resample = []        
+        grav_index = 0        
+        interval = 100
+        for magn in raw_total_data_dic['magn']:
+            if grav_index + interval <= len(gravLog):        
+                gra_temp, temp_index = find_data_using_timestamp(objectData = gravLog[grav_index:grav_index + interval], timestamp = magn[1], timeType = 1)
+            elif grav_index + interval > len(gravLog) and grav_index < len(gravLog):
+                gra_temp, temp_index = find_data_using_timestamp(objectData = gravLog[grav_index:len(gravLog)], timestamp = magn[1], timeType = 1)
+                    
+            grav_index = grav_index + temp_index
+            grav_resample.append(gra_temp)
+        
+                
+        angle_cor = math.radians(angle_cor)
+        orientationLog = []
+        for a, m in zip(grav_resample, magnLog):
+            eu = poseEstimation.Compass(a[2:5], m[2:5])
+            phi = angleTransfermation.RadianDegreeMutualTransfer(eu[0], inputAngleType = 'r', outputAngleType = outputAngleType)    
+            theta = angleTransfermation.RadianDegreeMutualTransfer(eu[1], inputAngleType = 'r', outputAngleType = outputAngleType) 
+            heading = angleTransfermation.RadianDegreeMutualTransfer(eu[2] - angle_cor, inputAngleType = 'r', outputAngleType = outputAngleType) #yaw
+            orientationLog.append([m[0], m[1], phi, theta, heading])
+        
+        return orientationLog
+    
+    
+    '''
+    直接从手机传感器中的AHRS获取航向信息 Sensor.TYPE_ROTATION_VECTOR:     
+    这个传感器数据的介绍：https://developer.android.com/reference/android/hardware/SensorEvent.html#values
+    The rotation vector represents the orientation of the device as a combination of an angle and an axis, 
+    in which the device has rotated through an angle θ around an axis <x, y, z>.
+    The three elements of the rotation vector are equal to the last three components of 
+    a unit quaternion <cos(θ/2), x*sin(θ/2), y*sin(θ/2), z*sin(θ/2)>.  ##q = [1.0,0.0,0.0,0.0]
+    Elements of the rotation vector are unitless (四元素无单位). The x,y, and z axis are defined in the same way as the acceleration sensor.
+    
+    X is defined as the vector product Y.Z (It is tangential to the ground at the device's current location and roughly points East).
+    Y is tangential to the ground at the device's current location and points towards magnetic north.
+    Z points towards the sky and is perpendicular to the ground.
+        
+    values[0]: x*sin(θ/2)
+    values[1]: y*sin(θ/2)
+    values[2]: z*sin(θ/2)
+    values[3]: cos(θ/2)
+    values[4]: estimated heading Accuracy (in radians) (-1 if unavailable)
+    
+    所以标准的四元素应该是： [values[3], values[0], values[1], values[2]]
+    '''
+    def getOrientationLogFromAHRS(self, ahrs = [], outputAngleType = 'd', angle_cor = 120):
+        '''
+        ahrs: list-like,里面存储了各时刻的四元素数据
+        outputAngleType 表示要输出的角度类型， r表示弧度，d表示角度
+        angle_cor: 当需要对角度进行校正时，可以进行角度校正
+        '''
+        angle_cor = math.radians(angle_cor)
+        OrientationLog = []
+        quatern = []
+        for i in range(len(ahrs)):
+            quatern = [ahrs[i][5], ahrs[i][2], ahrs[i][3], ahrs[i][4]] 
+            euler = quatern2euler(quatern)    #[phi,theta,psi]
+            #上一步得到的姿态角都是弧度为单位，此时需要进行角度转换
+            if outputAngleType == 'd':
+                phi = angleTransfermation.RadianDegreeMutualTransfer(euler[0], inputAngleType = 'r', outputAngleType = 'd')    
+                theta = angleTransfermation.RadianDegreeMutualTransfer(euler[1], inputAngleType = 'r', outputAngleType = 'd')
+                psi = angleTransfermation.RadianDegreeMutualTransfer(euler[2] - angle_cor, inputAngleType = 'r', outputAngleType = 'd')  #heading
+                OrientationLog.append([ahrs[i][0],ahrs[i][1], phi, theta, psi])
+            if outputAngleType == 'r':
+                phi = angleTransfermation.RadianDegreeMutualTransfer(euler[0], inputAngleType = 'r', outputAngleType = 'r')    
+                theta = angleTransfermation.RadianDegreeMutualTransfer(euler[1], inputAngleType = 'r', outputAngleType = 'r')
+                psi = angleTransfermation.RadianDegreeMutualTransfer(euler[2] - angle_cor, inputAngleType = 'r', outputAngleType = 'r')  #heading
+                OrientationLog.append([ahrs[i][0],ahrs[i][1], phi, theta, psi])
+        
+        return OrientationLog        
+    
+    
+    '''
+    Orientation 表示行进过程中每个时刻的姿态数据，而在PDR中我们只利用航向数据进行航迹推算，因此需要得到每一步的航向。
+    一般来说，人在行进过程中，每一步的航向存在多种情况，一种是边走边转，一种是先转后走
+    对于直走以及非常小角度的抖动，就认为是边走边转。 那么航向就认为是这段时间过程中的均值
+    对于角度比较大的转弯，一般会选择先转后走（两者间隔也比较短），那么航向就认为是靠近这一步走完的时刻的角度，也就是转后的角度。此时取均值时误差较大
+    那么为了准确的求得这个航向角，拐弯检测非常重要。
+    '''
+#    def cal_headingLog(self, orientationLog = [], walkingLog = [], model = '1', outputAngleType= 'd', timeType = 1, threshhold = 2):
+#        '''
+#        inputs:
+#            orientationLog: the list of orientation with timestamp
+#            walkingLog: the list of walking detected with timestamp
+#            model: how to get the headings within time slot of one step, default to use the mean of heading
+#            outputAngleType 表示要输出的角度类型， r表示弧度，d表示角度
+#            timeType: 0: App time; 1: sensorTime
+#            threshhold: 用来判断拐弯的阈值，比如标准差
+#        outputs:
+#            headingsLog: the list of headings at each step with timestamp
+#        '''
+#        headingsLog = []
+#        heading_detail = []
+#        for i,walking in enumerate(walkingLog):
+#            epoch_lStep = walking[timeType]
+#            epoch_cStep = walking[timeType + 2]
+#            flag, headings = self.turningDetection_orie1(orientationLog, [epoch_lStep, epoch_cStep], timeType, threshhold)
+#            if len(headings) != 0:
+#                if flag == False:
+#                    #没有出现转弯时，取航向的平均
+#                    h = headingOperation.cal_AverageOfAngles(headings, outputAngleType)                
+#                    #记录当前步的时间
+#                    headingsLog.append([walking[2], walking[3], h, 'mean'])
+#                    heading_detail.append(headings)
+#                else:
+#                    h, hds = self.headingOptimazation(headings, threshhold, outputAngleType = 'd', mode = model)
+#                    headingsLog.append([walking[2], walking[3], h, 'turning1'])   #这个标记用于后续的步长调整。
+#                    heading_detail.append(hds)
+#            else:
+#                headingsLog.append([])
+#                heading_detail.append([])     
+#                
+#        return headingsLog, heading_detail    
+ 
+    
+    
+    '''
+    当检测到有拐弯时，航向如何确定？
+    此函数主要是对航向的优化
+    '''
+    def headingOptimazation(self, headings = [], turningFlag = False, outputAngleType = 'd', mode = 'mean'):
+        '''
+        Parameters:
+            headings: 要进行优化的航向角， 单位必须是度
+            turningFlag: bool类型，是否有转弯
+            outputAngleType： 输出角度的类型，d表示度，r表示弧度
+            mode： 表示使用那种方法，具体的方法有：
+            当mode == 'mean': #仍旧使用均值
+            当mode == 'start': #使用第一个航向值
+            当mode == 'end': #使用最后一个航向值
+            当mode == 'mean-end': #没有转弯时使用均值，转弯情况下使用最后一个航向值
+        '''
+        h = 0
+        #航向角的选取策略：
+        #不管是否有转弯，都选取第一个航向值/均值/最后一个： 
+        if mode == 'mean': 
+            h = headingOperation.cal_AverageOfAngles(headings, outputAngleType) 
+        if mode == 'start':    
+            h = headings[0]
+        if mode == 'end':    
+            h = headings[-1]
+            
+        #第二类选取策略是进行组合，目前选用的一种组合是 当没有转弯时选用均值，当转弯时使用最后的那个航向角
+        if mode == 'mean-end':    
+            if turningFlag == False:
+                h = headingOperation.cal_AverageOfAngles(headings, outputAngleType) 
+            else:
+                h = headings[-1]
+        
+        return h
+    '''
+    拐弯检测：拐弯的检测对航向非常重要，这种方法是采用航向角进行计算，以下对两种情况进行考虑：
+    1）一种是小角度范围内，则认为是没有拐弯
+    2）当角度的变化超过这个阈值时，则认为存在拐弯
+    '''    
+    def turningDetection_orie1(self, orientationLog = [], time_range = [0, 0.2], timeType = 1, threshhold = 2):
+        '''
+        Parameters:
+            orientationLog: 存储的航向姿态的数据，用于拐弯检测,角度的单位是角度！
+            time_range: 检测的开始和结束时间
+            timeType 检测的时间类型，0表示APP时间，1表示传感器时间
+            threshhold： 用于判断是否存在拐弯的阈值,这个阈值是指标准差
+        '''
+        #判断时间是否有效
+#        if time_range[0] < orientationLog[0][timeType] or time_range[1] > orientationLog[-1][timeType]:
+#            raise ValueError("The time range is invalid!")
+        
+        start_time, end_time = time_range[0], time_range[1]
+        times = np.array(orientationLog)[:,timeType].tolist() 
+        indices = [times.index(i) for i in times if i >= start_time and i < end_time]
+        psi = [orientationLog[i][4] for i in indices]  #psi表示航向
+        if len(psi) != 0:
+            #首先计算平均值和方差, 平均值的解算结果都在0到正负180之间
+            std = headingOperation.cal_StandardErrorOfAngles(Angles = psi, outputAngleType = 'd')
+            if std <= threshhold:  
+                return False, psi
+            else:#当存在转弯时。
+                return True, psi 
+        else:
+            return False, []
+    
+    def turningDetection_orie2(self, orientationAngles = [], threshhold = 2):
+        '''
+        Parameters:
+            orientationAngles: 存储的航向数据，用于拐弯检测,角度的单位是角度！
+            threshhold： 用于判断是否存在拐弯的阈值,这个阈值是指标准差
+        '''
+        #判断时间是否有效
+        if len(orientationAngles) == 0:
+            return False
+        else:
+            std = headingOperation.cal_StandardErrorOfAngles(Angles = orientationAngles, outputAngleType = 'd')
+            if std <= threshhold:  
+                return False
+            else:#当存在转弯时。
+                return True
+     
+    '''
+    用陀螺仪的原始观测值进行拐弯检测,初步检测的方法是用标准差进行判断
+    '''
+    def turningDetection_gyro(self, gyroLog = [], time_range = [0, 0.2], timeType = 1, threshhold = 0.48):
+        '''
+        Parameters:
+            gyroLog: 存储的陀螺仪的数据，用于拐弯检测
+            time_range: 检测的开始和结束时间
+            timeType 检测的时间类型，0表示APP时间，1表示传感器时间
+            threshhold： 用于判断是否存在拐弯的阈值,这个阈值是指标准差, 根据经验值取0.48
+        '''
+        # if time_range[0] < gyroLog[0][timeType] or time_range[1] > gyroLog[-1][timeType]:
+        #     raise ValueError("The time range is invalid!")
+        std = -1
+        start_time, end_time = time_range[0], time_range[1]
+        times = np.array(gyroLog)[:,timeType].tolist() 
+        indices = [times.index(i) for i in times if i >= start_time and i < end_time]
+        #考虑持机姿态可能不是水平的，因此，采用陀螺仪的模会更好        
+        b=pd.DataFrame(gyroLog)
+        magnitude = np.sqrt(b[2]**2+b[3]**2+b[4]**2).tolist()
+        gyro_m = [magnitude[i] for i in indices]  #psi表示航向
+        if len(gyro_m) != 0:
+            std = np.std(gyro_m, axis = 0)
+            if std <= threshhold:  
+                return False, std
+            else:#当存在转弯时。
+                return True, std
+        else:
+            return False, std       
+    
+
+    '''
+    用磁力计的原始观测值进行拐弯检测,初步检测的方法是用标准差进行判断
+    但是判断的效果不好
+    '''
+    def turningDetection_magn(self, magnLog = [], time_range = [0, 0.2], timeType = 1, threshhold = 0.48):
+        '''
+        Parameters:
+            magnLog: 存储的陀螺仪的数据，用于拐弯检测
+            time_range: 检测的开始和结束时间
+            timeType 检测的时间类型，0表示APP时间，1表示传感器时间
+            threshhold： 用于判断是否存在拐弯的阈值,这个阈值是指标准差, 根据经验值取0.48
+        '''
+        if time_range[0] < magnLog[0][timeType] or time_range[1] > magnLog[-1][timeType]:
+            raise ValueError("The time range is invalid!")
+        std = -1
+        start_time, end_time = time_range[0], time_range[1]
+        times = np.array(magnLog)[:,timeType].tolist() 
+        indices = [times.index(i) for i in times if i >= start_time and i < end_time]
+        #考虑持机姿态可能不是水平的，因此，采用陀螺仪的模会更好        
+        b=pd.DataFrame(magnLog)
+        magnitude = np.sqrt(b[2]**2+b[3]**2+b[4]**2).tolist()
+        magn_m = [magnitude[i] for i in indices]  #psi表示航向
+        if len(magn_m) != 0:
+            std = np.std(magn_m, axis = 0)
+            if std <= threshhold:  
+                return False, std
+            else:#当存在转弯时。
+                return True, std
+        else:
+            return False, std       
+            
+    '''
+    拐弯的检测不仅可以影响航向的计算，还会影响步长的数值
+    因此，根据每一步发生的时间可以生成一个转弯检测记录，用于后续的步长调整。
+    '''
+#    def cal_turningLog(self, orientationLog = [], walkingLog = [], threshold):   #self, orientationLog = [], threshold = 20, 
+#        '''
+#        Parameter:
+#            
+#        '''
+#        #parameter:
+#        #threshold: unit is degree
+#        #两个连续的差角如果是符号相反则越可能是转向了。
+#        turningLog = []
+#        heading = np.array(orientationLog)[:,4]
+#        for i in range(1, len(heading)-1):
+#            dif1 = headingOperation.cal_DifferenceOfTwoAngles([heading[i-1], heading[i]], outputAngleType = 'd')
+#            dif2 = headingOperation.cal_DifferenceOfTwoAngles([heading[i], heading[i+1]], outputAngleType = 'd')
+#            if dif1 * dif2 >= 0: #the same symbol
+#                dif3 = headingOperation.cal_DifferenceOfTwoAngles([abs(dif1), abs(dif2)], outputAngleType = 'd')
+#            else:
+#                dif3 = headingOperation.cal_AdditionOfTwoAngles([abs(dif1), abs(dif2)], outputAngleType = 'd')
+#            
+#            if abs(dif3) >= threshold:
+#                turningLog.append([orientationLog[i][0],orientationLog[i][1],1])  #1 表示转向了
+#            else:
+#                turningLog.append([orientationLog[i][0],orientationLog[i][1],0])  #0 表示未转向
+#        
+#        return turningLog
+    
+
+    '''
+    cal_headingLog 与 cal_headingLog2的不同是此函数考虑了两种拐弯检测的方法，同时考虑了航向的取值问题
+    '''
+    def cal_headingLog(self, orientationLog = [], gyroLog = [], walkingLog = [], optimazationModel = 'mean', turningDetectionModel = 'orie', outputAngleType= 'd', timeType = 1, threshhold = 2):
+        '''
+        inputs:
+            orientationLog: the list of orientation with timestamp
+            gyroLog: the list of gyro data with timestamp
+            walkingLog: the list of walking detected with timestamp
+            optimazationModel: how to get the headings within time slot of one step, default to use the mean of heading
+            turningDetectionModel: 表示转弯检测的方法，orie表示直接用航向角判断，gyro表示用陀螺仪
+            outputAngleType 表示要输出的角度类型， r表示弧度，d表示角度
+            timeType: 0: App time; 1: sensorTime
+            threshhold: 用来判断拐弯的阈值，比如标准差
+        outputs:
+            headingsLog: the list of headings at each step with timestamp
+        '''
+        headingsLog = []
+        heading_detail = []
+        times = np.array(orientationLog)[:,timeType].tolist() 
+        for i,walking in enumerate(walkingLog):
+            epoch_lStep = walking[timeType]
+            epoch_cStep = walking[timeType + 2]
+            if turningDetectionModel == 'orie': #表示用航向角判断
+                flag, headings = self.turningDetection_orie1(orientationLog, [epoch_lStep, epoch_cStep], timeType, threshhold)
+            if turningDetectionModel == 'gyro': #表示用航向角判断
+                flag, _ = self.turningDetection_gyro(gyroLog, [epoch_lStep, epoch_cStep], timeType, threshhold)    
+                indices = [times.index(i) for i in times if i >= epoch_lStep and i < epoch_cStep]
+                headings = [orientationLog[i][4] for i in indices]  #psi表示航向
+            
+            if len(headings) != 0:
+                h = self.headingOptimazation(headings, flag, 'd', optimazationModel)
+                headingsLog.append([walking[2], walking[3], h, optimazationModel])   #这个标记用于后续的步长调整。
+                heading_detail.append(headings)
+            else:
+                headingsLog.append([])
+                heading_detail.append([])     
+                
+        return headingsLog, heading_detail  
+    
+    
+    '''
+    heading log for each walking step considering turning
+    得到每一步的航向,但是考虑了过程中的转向
+    '''    
+    '''Unlike the function of cal_headingLog, cal_headingLog2 consider the turning of heading'''
+    def cal_headingLog2(self, orientationLog = [], walkingLog = [], turningLog = [], model = 'mean', angleType= 'd', timeType = 1):
+        '''
+        inputs:
+            orientationLog: the list of orientation with timestamp
+            walkingLog: the list of walking detected with timestamp
+            turningLog: the list of turning detected with timestamp
+            model: how to get the headings within time slot of one step
+            timeType: 0: App time; 1: sensorTime
+        outputs:
+            headingsLog: the list of headings at each step with timestamp
+        '''
+        
+        '''
+        考虑转向的几个基本原则：
+        为了排除粗差引起的误检测，所以规定只有角度变化（turningLog中有1表示）的次数连续出现2次及以上才认为是有效转向
+        如果在目标时间段内只检测到一次角度变化，则认定为粗差。
+        当角度变化的次数大于等于两次，则取转向后的角度作为该步的方向。        
+        '''        
+        
+        last_walking = []
+        headingsLog = []
+        heading = np.array(orientationLog)[:,4]
+        times = np.array(orientationLog)[:,timeType].tolist() # there are two types of timestamps
+        for walking in walkingLog:
+            epoch_lStep = walking[timeType]
+            epoch_cStep = walking[timeType+2]    
+            self.turningdetection(turningLog, epoch_lStep, epoch_cStep, model, angleType, timeType)
+            #first get the headings with in [epoch_lStep, epoch_cStep]
+            eff_time = [times.index(i) for i in times if i >= epoch_lStep and i < epoch_cStep]
+            eff_heading = [heading[i] for i in eff_time]
+            
+            '''这里出现了一个问题，航向记录中出现了有段时间没有的情况，不知道是为什么？'''
+            if model == 'mean' and len(eff_heading) == 0 and len(last_walking) != 0: #假如某一时刻没有记录上，就用前面那个时候的航向代替，即默认航向没有变化。
+                last_epoch_lStep = last_walking[timeType]
+                eff_time = [times.index(i) for i in times if i >= last_epoch_lStep and i < epoch_cStep]
+                eff_heading = [heading[i] for i in eff_time]
+                h = headingOperation.cal_AverageOfAngles(eff_heading, angleType)
+                headingsLog.append([walking[timeType+1],walking[timeType+2],h,'mean'])
+            if model == 'mean' and len(eff_heading) != 0:
+                h = headingOperation.cal_AverageOfAngles(eff_heading, angleType)
+                headingsLog.append([walking[timeType+1],walking[timeType+2],h,'mean'])
+
+            last_walking = copy.deepcopy(walking)
+        return headingsLog 
+    
+    '''
+    计算航向过程中考虑转向，如果走路过程中发生了转向，则需要做转向的处理
+    '''
+    def turningdetection(self, turningLog = [], start_time = 0, end_time = 0.1, model = 'mean', angleType= 'd', timeType = 1):
+        times_turning = np.array(turningLog)[:,timeType].tolist() # there are two types of timestamps        
+        index_turning = [times_turning.index(i) for i in times_turning if i >= start_time and i < end_time]
+        turning = [turningLog[i][2] for i in index_turning]
+        target = 1
+        if target in turning:
+            print('starting, ending, turning', start_time, end_time, turning )
+#            print(turning)
+        
+        return None    
+
+            
+    '''
+    检查heading_detail是否有相差非常大角度
+    '''
+    def check_heading_detail(self, heading_detail = []):
+        for i in range(len(heading_detail)):
+            temp = heading_detail[i]
+            if abs(max(temp) - min(temp)) >= 10:
+                print(i, temp, np.mean(temp))
+    
+    '''
+    根据时间段截取的航向角列表来求这个时间段内的航向角的值
+    考虑几种情况：
+    1）当航向角列表中的角度之间最大差异在阈值（如10°）以内，则直接取平均角度值
+    2）当航向角列表的角度之间的最大差异在阈值以外时，这个时候需要这个时期内的角度变化。同时分为两种情况：
+        a）当角度变化值是递减或者递加时，则取最后的那个角度值作为输出值
+        b）当角度变化值是先递减（加）在递加（减）时，？？
+    '''
+    def headingCheck(self, headingList = [], angleType = 'd'):
+        heading = 0
+        temp = headingList
+#        heading = headingList[-1]
+#        if angleType == 'd':
+#            return heading
+#        if angleType == 'r':
+#            return math.radians(heading)            
+#            
+        if 3 <= abs(max(temp) - min(temp)) <= 180:
+#            heading = headingList[-1]
+            heading = np.median(headingList)
+            if angleType == 'd':
+                return heading
+            if angleType == 'r':
+                return math.radians(heading)            
+#                print(i, temp, np.mean(temp))   
+        else:
+            heading = headingOperation.cal_AverageOfAngles(headingList, angleType)            
+            return heading
+    
+    
+                  
+    
+    def cal_gyroLog(self, gyro = [], walkingLog = [], timeType = 1):
+        '''
+        function:
+            输入陀螺仪的观测数据和步伐检测的数据，按照步伐将每步过程中的陀螺仪的数据输出
+        '''
+        gyro_detail = []
+        gyro = np.array(gyro)
+        times = gyro[:,timeType].tolist() # there are two types of timestamps
+        for walking in walkingLog:
+            gyro_temp = []
+            epoch_lStep = walking[timeType]
+            epoch_cStep = walking[timeType+2]        
+            #first get the headings with in [epoch_lStep, epoch_cStep]
+            eff_time = [times.index(i) for i in times if i >= epoch_lStep and i < epoch_cStep]
+            for i in eff_time:
+                gyro_temp.append([gyro[i,2],gyro[i,3],gyro[i,4]])
+            gyro_detail.append(gyro_temp)
+            
+        return gyro_detail  
+    
+    def cal_magnLog(self, magn = [], walkingLog = [], timeType = 1):
+        '''
+        function:
+            输入陀螺仪的观测数据和步伐检测的数据，按照步伐将每步过程中的陀螺仪的数据输出
+        '''
+        magn_detail = []
+        magn = np.array(magn)
+        times = magn[:,timeType].tolist() # there are two types of timestamps
+        for walking in walkingLog:
+            magn_temp = []
+            epoch_lStep = walking[timeType]
+            epoch_cStep = walking[timeType+2]        
+            #first get the headings with in [epoch_lStep, epoch_cStep]
+            eff_time = [times.index(i) for i in times if i >= epoch_lStep and i < epoch_cStep]
+            for i in eff_time:
+                magn_temp.append([magn[i,2],magn[i,3],magn[i,4]])
+            magn_detail.append(magn_temp)
+            
+        return magn_detail  
+    
+    '''
+    由于加速度计（重力加速度），陀螺仪，磁力计等传感器原始观测数据格式一致，所以将cal_acceLog更名为cal_IMULog
+    def cal_acceLog(self, acce = [], walkingLog = [], timeType = 1)
+    '''
+    def cal_IMULog(self, IMU = [], walkingLog = [], timeType = 1):
+        '''
+        function:
+            输入陀螺仪的观测数据和步伐检测的数据，按照步伐将每步过程中的陀螺仪的数据输出
+        Parameters:
+            IMU: 可以是加速度计，重力加速度，陀螺仪和磁力计的数据
+            walkingLog: 每一步的发生时间
+            
+            output:
+                将每一步过程中的观测数据输出
+        '''
+        sensor_detail = []
+        sensor = np.array(copy.deepcopy(IMU))
+        times = sensor[:,timeType].tolist() # there are two types of timestamps
+        for walking in walkingLog:
+            if len(walking) != 0:
+                temp = []
+                epoch_lStep = walking[timeType]
+                epoch_cStep = walking[timeType+2]        
+                #first get the headings with in [epoch_lStep, epoch_cStep]
+                eff_time = [times.index(i) for i in times if i >= epoch_lStep and i < epoch_cStep]
+                if len(eff_time) != 0:
+                    for i in eff_time:
+                        temp.append([sensor[i,0],sensor[i,1],sensor[i,2],sensor[i,3],sensor[i,4], cal_Magnitude([sensor[i,2],sensor[i,3],sensor[i,4]])])
+                    sensor_detail.append(temp)
+                    
+        return sensor_detail  
+
+    #主要是检查每一步的时间是否出现错序，错序的时间的那一步直接剔除
+    def stepLogCheck(self, stepLog = []):
+        l_s = []
+        stepLog_new = []
+        for s,i in zip(stepLog, range(len(stepLog))):
+            if i == 0:
+                l_s = s
+        #        print('s',s[1])
+        #        stepLog_new.append(l_s)
+            else:
+                if s[1] > l_s[1]:
+        #            print('s[1] > l_s[1]',s[1], l_s[1])
+                    stepLog_new.append(s)
+                    l_s = s
+        return stepLog_new
+    
+
+    
+    def cal_OrientationLog_ahrs0(self, raw_total_data_dic = {}, method = 'mahony', angleType = 'd', samplePeriod = 0.02, mgAxis='x', Kp=0.5, Ki=0.0, beta=0.1, angle_cor = 120):  
+        '''
+        功能：
+            此函数功能是利用IMU对航向角进行解算。解算的方法有两种MahonyAHRS和MadgwickAHRS
+            加速度计和磁力计主要是用于校正陀螺仪积分求解姿态角
+            AHRS是从手机传感器中直接记录得到的旋转矢量，因为姿态是从一个给定的初始角度（或者初始四元素）进行解算的，因此需要
+            给姿态结算提供一个初始角度，而ahrs中的旋转矢量可以提供初值
+            在进行姿态解算时，由于整个过程是以陀螺仪积分为主，加速度和磁力计进行校正，那么所求的航向的时间轴以陀螺仪的轴相同
+        Parameters:
+            acce: 加速度计测量值的list,在姿态计算中用于获取俯仰roll和横滚pitch
+            magn: 磁力计测量值的list,在姿态计算中用于获取磁航向角yaw
+            gyro: 陀螺仪测量值的list,用于积分求解旋转角
+            ahrs: 存储旋转矢量的list，旋转矢量可以与四元素，欧拉角和旋转矩阵互换。这里主要用于提供四元素的初值
+            method: 等于 'mahony' or 'madgwick' 表示用哪种方法进行姿态解算，MahonyAHRS和MadgwickAHRS
+            angleType: 航向角的输出类型，可以是弧度也可以是角度
+            samplePeriod:陀螺仪的采样周期，即多长时间采样一次
+            mgAxis: 表示磁场的航向方向是哪一个轴，一般来说，水平时y轴为航向，此时解算主轴是x轴
+            Kp: 这个参数属于MahonyAHRS方法，它是用来控制梯度下降的学习率，默认取0.5
+            Ki: 这个参数属于MahonyAHRS方法，它表示是否对陀螺仪进行校正，默认取0
+            Beta: 这个参数属于MadgwickAHRS方法，它表示用来控制梯度下降的学习率，默认取0.1
+        Results:
+            OrientationLog: apptime,sensortime,heading,pitch/roll[47.255, 52093.312, 158.711, -3.93, -0.9]    
+        '''    
+        
+        gyroLog = raw_total_data_dic['gyro']
+    #    acceLog = raw_total_data_dic['acce']
+        magnLog = raw_total_data_dic['magn']   
+        gravLog = raw_total_data_dic['acce']  #因为最初开始采集数据的时候没有重力，所以暂时用加速度代替
+        
+        grav_resample = []
+        magn_resample = []
+        
+        grav_index = 0
+        magn_index = 0
+        
+        interval = 100
+        for gyro in raw_total_data_dic['gyro']:
+            if grav_index + interval <= len(gravLog) and grav_index < len(gravLog):        
+                gra_temp, temp_index = find_data_using_timestamp(objectData = gravLog[grav_index:grav_index + interval], timestamp = gyro[1], timeType = 1)
+                grav_index = grav_index + temp_index
+    #            print('grav_index',grav_index)
+                grav_resample.append(gra_temp)
+            else:
+                gra_temp, temp_index = find_data_using_timestamp(objectData = gravLog[grav_index:-1], timestamp = gyro[1], timeType = 1)
+                grav_index = grav_index + temp_index
+    #            print('grav_index',grav_index)
+                grav_resample.append(gra_temp)
+            if magn_index + interval <= len(magnLog) and grav_index < len(magnLog):        
+                mag_temp, temp_index = find_data_using_timestamp(objectData = magnLog[magn_index:magn_index+interval], timestamp = gyro[1], timeType = 1)
+                magn_index = magn_index + temp_index
+    #            print('magn_index',magn_index)
+                magn_resample.append(mag_temp)
+            else:
+                mag_temp, temp_index = find_data_using_timestamp(objectData = magnLog[magn_index:-1], timestamp = gyro[1], timeType = 1)
+                magn_index = magn_index + temp_index
+                magn_resample.append(mag_temp)
+        #    print('magn_index',magn_index)
+        
+        ahrs0, index = find_data_using_timestamp(objectData = raw_total_data_dic['ahrs'], timestamp = gyroLog[0][1], timeType = 1)   
+        q = euler2quatern([ahrs0[2], ahrs0[3], ahrs0[4]])
+        ahrs = [ahrs0[0], ahrs0[1], q[0], q[1], q[2], q[3]]
+        
+        #ahrs = [0, 0, 1, 0, 0, 0, 0] #换成欧拉角后为[0.0, -0.0, 0.0],表示将初始方向始终设置为0，需要用起始航向来校正
+                
+        angle_cor = math.radians(angle_cor)
+        mainAxis = mgAxis
+        q = ahrs[2:6]
+        init_Epoch = gyroLog[0][1] - samplePeriod
+        quaternion = []
+        orientationLog = []
+        for a, g, m in zip(grav_resample, gyroLog, magn_resample):
+        #for a, g, m in zip(gravLog, gyroLog, magnLog):
+            samplePeriod = g[1] - init_Epoch
+            if method == 'mahony':
+                q = poseEstimation.MahonyAHRS_IMU(g[2:5], a[2:5], m[2:5], q, mgAxis = mainAxis, twoKp = Kp, twoKi = Ki, samplePeriod = samplePeriod)
+            if method == 'madgwick':
+                q = poseEstimation.MadgwickAHRS_IMU(g[2:5], a[2:5], m[2:5], q, mgAxis = mainAxis, Beta = beta, samplePeriod = samplePeriod)
+            quaternion.append(q)
+            eu = quatern2euler(q)
+            phi = angleTransfermation.RadianDegreeMutualTransfer(eu[0], inputAngleType = 'r', outputAngleType = 'd')    
+            theta = angleTransfermation.RadianDegreeMutualTransfer(eu[1], inputAngleType = 'r', outputAngleType = 'd') 
+            heading = angleTransfermation.RadianDegreeMutualTransfer(eu[2] - angle_cor, inputAngleType = 'r', outputAngleType = 'd') #yaw
+            orientationLog.append([g[0], g[1], phi, theta, heading])
+            init_Epoch = g[1]      
+        
+        return orientationLog
+
+        
+    
+class pdrParameters_copy:
+    '''
+    turning detection
+    用于检测拐弯
+    '''
+    def cal_turningLog(self, orientationLog = [], threshold = 20):
+        #parameter:
+        #threshold: unit is degree
+        #两个连续的差角如果是符号相反则越可能是转向了。
+        turningLog = []
+        heading = np.array(orientationLog)[:,4]
+        for i in range(1, len(heading)-1):
+            dif1 = self.cal_DifferenceOfTwoAngles([heading[i-1], heading[i]])
+            dif2 = self.cal_DifferenceOfTwoAngles([heading[i], heading[i+1]])
+            if dif1 * dif2 >= 0: #the same symbol
+                dif3 = self.cal_DifferenceOfTwoAngles([abs(dif1), abs(dif2)])
+            else:
+                dif3 = self.cal_AdditionOfTwoAngles([abs(dif1), abs(dif2)])
+            
+            if abs(dif3) >= threshold:
+                turningLog.append([orientationLog[i][0],orientationLog[i][1],1])  #1 表示转向了
+            else:
+                turningLog.append([orientationLog[i][0],orientationLog[i][1],0])  #0 表示未转向
+        
+        return turningLog
+    
+    '''
+    heading log for each walking step
+    得到每一步的航向
+    '''
+    def cal_headingLog(self, orientationLog = [], walkingLog = [], model = 'mean', angleType= 'd', timeType = 1):
+        '''
+        inputs:
+            orientationLog: the list of orientation with timestamp
+            walkingLog: the list of walking detected with timestamp
+            model: how to get the headings within time slot of one step, default to use the mean of heading
+            timeType: 0: App time; 1: sensorTime
+        outputs:
+            headingsLog: the list of headings at each step with timestamp
+        '''
+        headingsLog = []
+        heading_detail = []
+        heading = np.array(orientationLog)[:,4]
+        times = np.array(orientationLog)[:,timeType].tolist() # there are two types of timestamps
+        #print('times',times)   
+        for walking in walkingLog:
+            epoch_lStep = walking[timeType]
+            epoch_cStep = walking[timeType + 2]
+            #print('epoch_lStep',epoch_lStep)
+            #print('epoch_cStep',epoch_cStep)       
+            #first get the headings with in [epoch_lStep, epoch_cStep]
+            eff_time = [times.index(i) for i in times if i >= epoch_lStep and i < epoch_cStep]
+            eff_heading = [heading[i] for i in eff_time]
+            '''这里出现了一个问题，航向记录中出现了有段时间没有的情况，不知道是为什么？///解决的方案是，当出现两步之间没有航向时，这一步不算'''
+            if model == 'mean' and len(eff_heading) == 0: #假如某一时刻没有记录上，就为空
+                headingsLog.append([])
+                heading_detail.append([])
+            if model == 'mean' and len(eff_heading) != 0:
+#                h = self.headingCheck(eff_heading, angleType)
+                h = self.cal_AverageOfAngles(eff_heading, angleType)
+                #记录当前步的时间
+                headingsLog.append([walking[2], walking[3], h, 'mean'])
+                heading_detail.append(eff_heading)
+                
+        return headingsLog, heading_detail    
+    
+    '''
+    heading log for each walking step considering turning
+    得到每一步的航向,但是考虑了过程中的转向
+    '''    
+    '''Unlike the function of cal_headingLog, cal_headingLog2 consider the turning of heading'''
+    def cal_headingLog2(self, orientationLog = [], walkingLog = [], turningLog = [], model = 'mean', angleType= 'd', timeType = 1):
+        '''
+        inputs:
+            orientationLog: the list of orientation with timestamp
+            walkingLog: the list of walking detected with timestamp
+            turningLog: the list of turning detected with timestamp
+            model: how to get the headings within time slot of one step
+            timeType: 0: App time; 1: sensorTime
+        outputs:
+            headingsLog: the list of headings at each step with timestamp
+        '''
+        
+        '''
+        考虑转向的几个基本原则：
+        为了排除粗差引起的误检测，所以规定只有角度变化（turningLog中有1表示）的次数连续出现2次及以上才认为是有效转向
+        如果在目标时间段内只检测到一次角度变化，则认定为粗差。
+        当角度变化的次数大于等于两次，则取转向后的角度作为该步的方向。        
+        '''        
+        
+        last_walking = []
+        headingsLog = []
+        heading = np.array(orientationLog)[:,4]
+        times = np.array(orientationLog)[:,timeType].tolist() # there are two types of timestamps
+        for walking in walkingLog:
+            epoch_lStep = walking[timeType]
+            epoch_cStep = walking[timeType+2]    
+            self.turningdetection(turningLog, epoch_lStep, epoch_cStep, model, angleType, timeType)
+            #first get the headings with in [epoch_lStep, epoch_cStep]
+            eff_time = [times.index(i) for i in times if i >= epoch_lStep and i < epoch_cStep]
+            eff_heading = [heading[i] for i in eff_time]
+            
+            '''这里出现了一个问题，航向记录中出现了有段时间没有的情况，不知道是为什么？'''
+            if model == 'mean' and len(eff_heading) == 0 and len(last_walking) != 0: #假如某一时刻没有记录上，就用前面那个时候的航向代替，即默认航向没有变化。
+                last_epoch_lStep = last_walking[timeType]
+                eff_time = [times.index(i) for i in times if i >= last_epoch_lStep and i < epoch_cStep]
+                eff_heading = [heading[i] for i in eff_time]
+                h = self.cal_AverageOfAngles(eff_heading, angleType)
+                headingsLog.append([walking[timeType+1],walking[timeType+2],h,'mean'])
+            if model == 'mean' and len(eff_heading) != 0:
+                h = self.cal_AverageOfAngles(eff_heading, angleType)
+                headingsLog.append([walking[timeType+1],walking[timeType+2],h,'mean'])
+
+            last_walking = copy.deepcopy(walking)
+        return headingsLog 
+    
+    '''
+    计算航向过程中考虑转向，如果走路过程中发生了转向，则需要做转向的处理
+    '''
+    def turningdetection(self, turningLog = [], start_time = 0, end_time = 0.1, model = 'mean', angleType= 'd', timeType = 1):
+        times_turning = np.array(turningLog)[:,timeType].tolist() # there are two types of timestamps        
+        index_turning = [times_turning.index(i) for i in times_turning if i >= start_time and i < end_time]
+        turning = [turningLog[i][2] for i in index_turning]
+        target = 1
+        if target in turning:
+            print('starting, ending, turning', start_time, end_time, turning )
+#            print(turning)
+        
+        return None
+    
+    def cal_AdditionOfTwoAngles(self, Angles = [1.0,2.0], angleType = 'd'):
+        '''
+        it is used to calculate the difference between two angles.
+        two examples:
+            #print(pdrParameters().cal_AdditionOfTwoAngles(Angles=[-100,-10])) :-110
+            #print(pdrParameters().cal_AdditionOfTwoAngles(Angles=[100,10])) :110
+            #print(pdrParameters().cal_AdditionOfTwoAngles(Angles=[300,100])) : 40
+        '''       
+        
+        if len(Angles) != 2:
+            raise ValueError("The size of input should be two!")
+        sumAngle = 0
+        if Angles[0] >= 0 and Angles[1] >= 0:
+            sumAngle = Angles[0] + Angles[1] if Angles[0] + Angles[1] < 360 else Angles[0] + Angles[1] - 360
+        elif Angles[0] <= 0 and Angles[1] <= 0:
+            sumAngle = Angles[0] + Angles[1] if Angles[0] + Angles[1] > -360 else Angles[0] + Angles[1] + 360
+        else:            
+            raise ValueError("The symbol of two angles should be the same!")
+        
+        if angleType == 'd':
+            return sumAngle
+        if angleType == 'r':
+            return math.radians(sumAngle)    
+    
+    def cal_DifferenceOfTwoAngles(self, Angles = [1.0,2.0], angleType = 'd'):
+        '''
+        it is used to calculate the difference between two angles.
+        two examples:
+            #print(pdrParameters().cal_DifferenceOfTwoAngles(Angles=[310,20])) :70   
+            print(pdrParameters().cal_DifferenceOfTwoAngles(Angles=[10,20])) : 10
+            print(pdrParameters().cal_DifferenceOfTwoAngles(Angles=[20,10])) :-10
+        '''       
+        
+        if len(Angles)!= 2:
+            raise ValueError("The size of input should be two!")
+        difference = 0
+        if Angles[0] * Angles[1] < 0:
+            print(Angles[0], Angles[1])
+            raise ValueError("The symbol of two angles should be the same!")
+        elif Angles[0] >= 0 and Angles[1] >= 0:
+            ''' the contious difference between two angle is within 180'''
+            average = self.cal_AverageOfTwoAngles([Angles[0], Angles[1]],angleType)
+            difference = 2 * abs(average - Angles[0]) if abs(average - Angles[0]) < 90 else 2 * abs(average - Angles[1])
+            #clockwise 
+            if Angles[0] > Angles[1] > average or average > Angles[0] > Angles[1] or Angles[1] > average > Angles[0]:
+                difference = difference
+            #count clockwise
+            if Angles[1] > Angles[0] > average or average > Angles[1] > Angles[0] or Angles[0] > average > Angles[1]:
+                difference = -difference    
+        
+        elif Angles[0] < 0 and Angles[1] < 0:
+            raise ValueError("The value of angle should be positive!")
+            
+        if angleType == 'd':
+            return difference
+        if angleType == 'r':
+            return math.radians(difference)
+    
+    def cal_AverageOfTwoAngles(self, Angles = [1.0,2.0], angleType = 'd'):
+        if len(Angles) != 2:
+            raise ValueError("The size of input should be two!")
+        average = 0.0
+        '''As the angle is time-related, so the average refers to the first angle'''
+        if abs(Angles[0]-Angles[1]) <= 180:
+            average = (Angles[0] + Angles[1]) / 2.0        
+        if abs(Angles[0]-Angles[1]) > 180:
+            average = (Angles[0] + Angles[1]) / 2.0 + 180 if (Angles[0] + Angles[1]) / 2.0 + 180 <= 360 else (Angles[0] + Angles[1]) / 2.0 - 180       
+                  
+        if angleType == 'd':
+            return average
+        if angleType == 'r':
+            return math.radians(average)
+        
+    def cal_AverageOfAngles(self, Angles = [1.0, 2.0, 3.0], angleType = 'd'):
+        '''
+        The Average of angles is not strictly the mean of two angles
+        We need to consider the circumunstance when the difference between them is beyond 180
+        Attention: the order of two angles matters. and the rule of to average them is the change should not beyond 180
+        也就是角度的瞬间变化不能超过180°. 为了帮助理解，可以将求角度的均值理解为：第一个角作为初始角，然后判断是顺时针还是逆时针即可。
+        判断顺时针还是逆时针的方法是：均值角在起始角的左边还是右边，如果均值角在起始角左边，则说明是逆时针在运动。反之则为顺时针。
+        '''
+        average = 0.0
+        if len(Angles) < 1:
+            raise ValueError("The size of input should be at least one!")
+        if len(Angles) == 1:
+            average = Angles[0]
+        if len(Angles) == 2:
+            average = self.cal_AverageOfTwoAngles(Angles, angleType)
+        if len(Angles) > 2:
+            '''As the angle is time-related, so the average refers to the first angle'''
+            lastAngle = Angles[0]
+            sumAngle = Angles[0]
+            for i in range(1, len(Angles)):
+                diff = self.cal_DifferenceOfTwoAngles([Angles[i-1], Angles[i]])
+                lastAngle = lastAngle + diff
+                sumAngle = sumAngle + lastAngle
+#                print('diff+lastAngle+sumAngle', diff,lastAngle, sumAngle)
+            average = sumAngle / len(Angles) * 1.0  
+        if average < 0:
+            average = average + 360        
+        if average > 360:
+            average = average % 360
+        
+        
+        if angleType == 'd':
+            return average
+        if angleType == 'r':
+            return math.radians(average)
+            
+    '''
+    检查heading_detail是否有相差非常大角度
+    '''
+    def check_heading_detail(self, heading_detail = []):
+        for i in range(len(heading_detail)):
+            temp = heading_detail[i]
+            if abs(max(temp) - min(temp)) >= 10:
+                print(i, temp, np.mean(temp))
+    
+    '''
+    根据时间段截取的航向角列表来求这个时间段内的航向角的值
+    考虑几种情况：
+    1）当航向角列表中的角度之间最大差异在阈值（如10°）以内，则直接取平均角度值
+    2）当航向角列表的角度之间的最大差异在阈值以外时，这个时候需要这个时期内的角度变化。同时分为两种情况：
+        a）当角度变化值是递减或者递加时，则取最后的那个角度值作为输出值
+        b）当角度变化值是先递减（加）在递加（减）时，？？
+    '''
+    def headingCheck(self, headingList = [], angleType = 'd'):
+        heading = 0
+        temp = headingList
+#        heading = headingList[-1]
+#        if angleType == 'd':
+#            return heading
+#        if angleType == 'r':
+#            return math.radians(heading)            
+#            
+        if 3 <= abs(max(temp) - min(temp)) <= 180:
+#            heading = headingList[-1]
+            heading = np.median(headingList)
+            if angleType == 'd':
+                return heading
+            if angleType == 'r':
+                return math.radians(heading)            
+#                print(i, temp, np.mean(temp))   
+        else:
+            heading = self.cal_AverageOfAngles(headingList, angleType)            
+            return heading
+    
+    
+    '''
+    用陀螺仪的原始观测值进行拐弯检测
+    '''
+    def turningDetection(self, walkingLog = [], gyrosList = [], timeType = 1):
+        gyro_detail = []
+        gyros_z = np.array(gyrosList)[:,-1]
+        times = np.array(gyrosList)[:,timeType].tolist() # there are two types of timestamps
+        for walking in walkingLog:
+            epoch_lStep = walking[timeType]
+            epoch_cStep = walking[timeType+2]        
+            #first get the headings with in [epoch_lStep, epoch_cStep]
+            eff_time = [times.index(i) for i in times if i >= epoch_lStep and i < epoch_cStep]
+            z = [gyros_z[i] for i in eff_time]
+            gyro_detail.append(z)
+        
+        return gyro_detail                     
+    
+    def cal_gyroLog(self, gyro = [], walkingLog = [], timeType = 1):
+        '''
+        function:
+            输入陀螺仪的观测数据和步伐检测的数据，按照步伐将每步过程中的陀螺仪的数据输出
+        '''
+        gyro_detail = []
+        gyro = np.array(gyro)
+        times = gyro[:,timeType].tolist() # there are two types of timestamps
+        for walking in walkingLog:
+            gyro_temp = []
+            epoch_lStep = walking[timeType]
+            epoch_cStep = walking[timeType+2]        
+            #first get the headings with in [epoch_lStep, epoch_cStep]
+            eff_time = [times.index(i) for i in times if i >= epoch_lStep and i < epoch_cStep]
+            for i in eff_time:
+                gyro_temp.append([gyro[i,2],gyro[i,3],gyro[i,4]])
+            gyro_detail.append(gyro_temp)
+            
+        return gyro_detail  
+    
+    def cal_magnLog(self, magn = [], walkingLog = [], timeType = 1):
+        '''
+        function:
+            输入陀螺仪的观测数据和步伐检测的数据，按照步伐将每步过程中的陀螺仪的数据输出
+        '''
+        magn_detail = []
+        magn = np.array(magn)
+        times = magn[:,timeType].tolist() # there are two types of timestamps
+        for walking in walkingLog:
+            magn_temp = []
+            epoch_lStep = walking[timeType]
+            epoch_cStep = walking[timeType+2]        
+            #first get the headings with in [epoch_lStep, epoch_cStep]
+            eff_time = [times.index(i) for i in times if i >= epoch_lStep and i < epoch_cStep]
+            for i in eff_time:
+                magn_temp.append([magn[i,2],magn[i,3],magn[i,4]])
+            magn_detail.append(magn_temp)
+            
+        return magn_detail  
+    
+    '''
+    由于加速度计（重力加速度），陀螺仪，磁力计等传感器原始观测数据格式一致，所以将cal_acceLog更名为cal_IMULog
+    def cal_acceLog(self, acce = [], walkingLog = [], timeType = 1)
+    '''
+    def cal_IMULog(self, IMU = [], walkingLog = [], timeType = 1):
+        '''
+        function:
+            输入陀螺仪的观测数据和步伐检测的数据，按照步伐将每步过程中的陀螺仪的数据输出
+        Parameters:
+            IMU: 可以是加速度计，重力加速度，陀螺仪和磁力计的数据
+            walkingLog: 每一步的发生时间
+            
+            output:
+                将每一步过程中的观测数据输出
+        '''
+        sensor_detail = []
+        sensor = np.array(copy.deepcopy(IMU))
+        times = sensor[:,timeType].tolist() # there are two types of timestamps
+        for walking in walkingLog:
+            if len(walking) != 0:
+                temp = []
+                epoch_lStep = walking[timeType]
+                epoch_cStep = walking[timeType+2]        
+                #first get the headings with in [epoch_lStep, epoch_cStep]
+                eff_time = [times.index(i) for i in times if i >= epoch_lStep and i < epoch_cStep]
+                if len(eff_time) != 0:
+                    for i in eff_time:
+                        temp.append([sensor[i,0],sensor[i,1],sensor[i,2],sensor[i,3],sensor[i,4], cal_Magnitude([sensor[i,2],sensor[i,3],sensor[i,4]])])
+                    sensor_detail.append(temp)
+                    
+        return sensor_detail  
+
+    #主要是检查每一步的时间是否出现错序，错序的时间的那一步直接剔除
+    def stepLogCheck(self, stepLog = []):
+        l_s = []
+        stepLog_new = []
+        for s,i in zip(stepLog, range(len(stepLog))):
+            if i == 0:
+                l_s = s
+        #        print('s',s[1])
+        #        stepLog_new.append(l_s)
+            else:
+                if s[1] > l_s[1]:
+        #            print('s[1] > l_s[1]',s[1], l_s[1])
+                    stepLog_new.append(s)
+                    l_s = s
+        return stepLog_new
+    
+    def cal_OrientationLog(self, raw_total_data_dic = {}, method = 'mahony', angleType = 'd', samplePeriod = 0.02, mgAxis='x', Kp=0.5, Ki=0.0, beta=0.1, angle_cor = 120):  
+        '''
+        功能：
+            此函数功能是利用IMU对航向角进行解算。解算的方法有两种MahonyAHRS和MadgwickAHRS
+            加速度计和磁力计主要是用于校正陀螺仪积分求解姿态角
+            AHRS是从手机传感器中直接记录得到的旋转矢量，因为姿态是从一个给定的初始角度（或者初始四元素）进行解算的，因此需要
+            给姿态结算提供一个初始角度，而ahrs中的旋转矢量可以提供初值
+            在进行姿态解算时，由于整个过程是以陀螺仪积分为主，加速度和磁力计进行校正，那么所求的航向的时间轴以陀螺仪的轴相同
+        Parameters:
+            acce: 加速度计测量值的list,在姿态计算中用于获取俯仰roll和横滚pitch
+            magn: 磁力计测量值的list,在姿态计算中用于获取磁航向角yaw
+            gyro: 陀螺仪测量值的list,用于积分求解旋转角
+            ahrs: 存储旋转矢量的list，旋转矢量可以与四元素，欧拉角和旋转矩阵互换。这里主要用于提供四元素的初值
+            method: 等于 'mahony' or 'madgwick' 表示用哪种方法进行姿态解算，MahonyAHRS和MadgwickAHRS
+            angleType: 航向角的输出类型，可以是弧度也可以是角度
+            samplePeriod:陀螺仪的采样周期，即多长时间采样一次
+            mgAxis: 表示磁场的航向方向是哪一个轴，一般来说，水平时y轴为航向，此时解算主轴是x轴
+            Kp: 这个参数属于MahonyAHRS方法，它是用来控制梯度下降的学习率，默认取0.5
+            Ki: 这个参数属于MahonyAHRS方法，它表示是否对陀螺仪进行校正，默认取0
+            Beta: 这个参数属于MadgwickAHRS方法，它表示用来控制梯度下降的学习率，默认取0.1
+        Results:
+            OrientationLog: apptime,sensortime,heading,pitch/roll[47.255, 52093.312, 158.711, -3.93, -0.9]    
+        '''    
+        
+        gyroLog = raw_total_data_dic['gyro']
+    #    acceLog = raw_total_data_dic['acce']
+        magnLog = raw_total_data_dic['magn']   
+        gravLog = raw_total_data_dic['acce']  #因为最初开始采集数据的时候没有重力，所以暂时用加速度代替
+        
+        grav_resample = []
+        magn_resample = []
+        
+        grav_index = 0
+        magn_index = 0
+        
+        interval = 100
+        for gyro in raw_total_data_dic['gyro']:
+            if grav_index + interval <= len(gravLog):        
+                gra_temp, temp_index = find_data_using_timestamp(objectData = gravLog[grav_index:grav_index + interval], timestamp = gyro[1], timeType = 1)
+            elif grav_index + interval > len(gravLog) and grav_index < len(gravLog):
+                gra_temp, temp_index = find_data_using_timestamp(objectData = gravLog[grav_index:len(gravLog)], timestamp = gyro[1], timeType = 1)
+                    
+            grav_index = grav_index + temp_index
+#            print('grav_index',grav_index)
+            grav_resample.append(gra_temp)
+
+            if magn_index + interval <= len(magnLog):        
+                mag_temp, temp_index = find_data_using_timestamp(objectData = magnLog[magn_index:magn_index+interval], timestamp = gyro[1], timeType = 1)
+            elif magn_index + interval > len(magnLog) and grav_index < len(magnLog):
+                mag_temp, temp_index = find_data_using_timestamp(objectData = magnLog[magn_index:len(magnLog)], timestamp = gyro[1], timeType = 1)
+
+            magn_index = magn_index + temp_index
+#            print('magn_index',magn_index)
+            magn_resample.append(mag_temp)
+        
+    #    ahrs0, index = find_data_using_timestamp(objectData = raw_total_data_dic['ahrs'], timestamp = gyroLog[0][1], timeType = 1)    
+    #    ahrs = [ahrs0[0], ahrs0[1], ahrs0[5], ahrs0[2], ahrs0[3], ahrs0[4], ahrs0[6]]
+        ahrs = [0, 0, 1, 0, 0, 0, 0] #换成欧拉角后为[0.0, -0.0, 0.0],表示将初始方向始终设置为0，需要用起始航向来校正
+                
+        angle_cor = math.radians(angle_cor)
+        mainAxis = mgAxis
+        q = ahrs[2:6]
+        init_Epoch = gyroLog[0][1] - samplePeriod
+        quaternion = []
+        orientationLog = []
+        for a, g, m in zip(grav_resample, gyroLog, magn_resample):
+        #for a, g, m in zip(gravLog, gyroLog, magnLog):
+            samplePeriod = g[1] - init_Epoch
+            if method == 'mahony':
+                q = poseEstimation.MahonyAHRS_IMU(g[2:5], a[2:5], m[2:5], q, mgAxis = mainAxis, twoKp = Kp, twoKi = Ki, samplePeriod = samplePeriod)
+            if method == 'madgwick':
+                q = poseEstimation.MadgwickAHRS_IMU(g[2:5], a[2:5], m[2:5], q, mgAxis = mainAxis, Beta = beta, samplePeriod = samplePeriod)
+            quaternion.append(q)
+            eu = quatern2euler(q)
+            phi = angleTransfermation.RadianDegreeMutualTransfer(eu[0], inputAngleType = 'r', outputAngleType = 'd')    
+            theta = angleTransfermation.RadianDegreeMutualTransfer(eu[1], inputAngleType = 'r', outputAngleType = 'd') 
+            heading = angleTransfermation.RadianDegreeMutualTransfer(eu[2] - angle_cor, inputAngleType = 'r', outputAngleType = 'd') #yaw
+            orientationLog.append([g[0], g[1], phi, theta, heading])
+            init_Epoch = g[1]      
+        
+        return orientationLog
+    
+    '''
+    直接从手机传感器中的AHRS获取航向信息 Sensor.TYPE_ROTATION_VECTOR:     
+    这个传感器数据的介绍：https://developer.android.com/reference/android/hardware/SensorEvent.html#values
+    The rotation vector represents the orientation of the device as a combination of an angle and an axis, 
+    in which the device has rotated through an angle θ around an axis <x, y, z>.
+    The three elements of the rotation vector are equal to the last three components of 
+    a unit quaternion <cos(θ/2), x*sin(θ/2), y*sin(θ/2), z*sin(θ/2)>.  ##q = [1.0,0.0,0.0,0.0]
+    Elements of the rotation vector are unitless (四元素无单位). The x,y, and z axis are defined in the same way as the acceleration sensor.
+    
+    X is defined as the vector product Y.Z (It is tangential to the ground at the device's current location and roughly points East).
+    Y is tangential to the ground at the device's current location and points towards magnetic north.
+    Z points towards the sky and is perpendicular to the ground.
+        
+    values[0]: x*sin(θ/2)
+    values[1]: y*sin(θ/2)
+    values[2]: z*sin(θ/2)
+    values[3]: cos(θ/2)
+    values[4]: estimated heading Accuracy (in radians) (-1 if unavailable)
+    
+    所以标准的四元素应该是： [values[3], values[0], values[1], values[2]]
+    '''
+    def getOrientationLogFromAHRS(self, ahrs = [], outputAngleType = 'd', angle_cor = 120):
+        '''
+        ahrs: list-like,里面存储了各时刻的四元素数据
+        outputAngleType 表示要输出的角度类型， r表示弧度，d表示角度
+        angle_cor: 当需要对角度进行校正时，可以进行角度校正
+        '''
+        OrientationLog = []
+        quatern = []
+        for i in range(len(ahrs)):
+            quatern = [ahrs[i][5], ahrs[i][2], ahrs[i][3], ahrs[i][4]] 
+            euler = quatern2euler(quatern)    #[phi,theta,psi]
+            #上一步得到的姿态角都是弧度为单位，此时需要进行角度转换
+            if outputAngleType == 'd':
+                phi = angleTransfermation.RadianDegreeMutualTransfer(euler[0], inputAngleType = 'r', outputAngleType = 'd')    
+                theta = angleTransfermation.RadianDegreeMutualTransfer(euler[1], inputAngleType = 'r', outputAngleType = 'd')
+                psi = angleTransfermation.RadianDegreeMutualTransfer(euler[2] - math.radians(angle_cor), inputAngleType = 'r', outputAngleType = 'd')  #heading
+                OrientationLog.append([ahrs[i][0],ahrs[i][1], phi, theta, psi])
+            if outputAngleType == 'r':
+                phi = angleTransfermation.RadianDegreeMutualTransfer(euler[0], inputAngleType = 'r', outputAngleType = 'r')    
+                theta = angleTransfermation.RadianDegreeMutualTransfer(euler[1], inputAngleType = 'r', outputAngleType = 'r')
+                psi = angleTransfermation.RadianDegreeMutualTransfer(euler[2] - math.radians(angle_cor), inputAngleType = 'r', outputAngleType = 'r')  #heading
+                OrientationLog.append([ahrs[i][0],ahrs[i][1], phi, theta, psi])
+        
+        return OrientationLog
+        
+    
+    def cal_OrientationLog_ahrs0(self, raw_total_data_dic = {}, method = 'mahony', angleType = 'd', samplePeriod = 0.02, mgAxis='x', Kp=0.5, Ki=0.0, beta=0.1, angle_cor = 120):  
+        '''
+        功能：
+            此函数功能是利用IMU对航向角进行解算。解算的方法有两种MahonyAHRS和MadgwickAHRS
+            加速度计和磁力计主要是用于校正陀螺仪积分求解姿态角
+            AHRS是从手机传感器中直接记录得到的旋转矢量，因为姿态是从一个给定的初始角度（或者初始四元素）进行解算的，因此需要
+            给姿态结算提供一个初始角度，而ahrs中的旋转矢量可以提供初值
+            在进行姿态解算时，由于整个过程是以陀螺仪积分为主，加速度和磁力计进行校正，那么所求的航向的时间轴以陀螺仪的轴相同
+        Parameters:
+            acce: 加速度计测量值的list,在姿态计算中用于获取俯仰roll和横滚pitch
+            magn: 磁力计测量值的list,在姿态计算中用于获取磁航向角yaw
+            gyro: 陀螺仪测量值的list,用于积分求解旋转角
+            ahrs: 存储旋转矢量的list，旋转矢量可以与四元素，欧拉角和旋转矩阵互换。这里主要用于提供四元素的初值
+            method: 等于 'mahony' or 'madgwick' 表示用哪种方法进行姿态解算，MahonyAHRS和MadgwickAHRS
+            angleType: 航向角的输出类型，可以是弧度也可以是角度
+            samplePeriod:陀螺仪的采样周期，即多长时间采样一次
+            mgAxis: 表示磁场的航向方向是哪一个轴，一般来说，水平时y轴为航向，此时解算主轴是x轴
+            Kp: 这个参数属于MahonyAHRS方法，它是用来控制梯度下降的学习率，默认取0.5
+            Ki: 这个参数属于MahonyAHRS方法，它表示是否对陀螺仪进行校正，默认取0
+            Beta: 这个参数属于MadgwickAHRS方法，它表示用来控制梯度下降的学习率，默认取0.1
+        Results:
+            OrientationLog: apptime,sensortime,heading,pitch/roll[47.255, 52093.312, 158.711, -3.93, -0.9]    
+        '''    
+        
+        gyroLog = raw_total_data_dic['gyro']
+    #    acceLog = raw_total_data_dic['acce']
+        magnLog = raw_total_data_dic['magn']   
+        gravLog = raw_total_data_dic['acce']  #因为最初开始采集数据的时候没有重力，所以暂时用加速度代替
+        
+        grav_resample = []
+        magn_resample = []
+        
+        grav_index = 0
+        magn_index = 0
+        
+        interval = 100
+        for gyro in raw_total_data_dic['gyro']:
+            if grav_index + interval <= len(gravLog) and grav_index < len(gravLog):        
+                gra_temp, temp_index = find_data_using_timestamp(objectData = gravLog[grav_index:grav_index + interval], timestamp = gyro[1], timeType = 1)
+                grav_index = grav_index + temp_index
+    #            print('grav_index',grav_index)
+                grav_resample.append(gra_temp)
+            else:
+                gra_temp, temp_index = find_data_using_timestamp(objectData = gravLog[grav_index:-1], timestamp = gyro[1], timeType = 1)
+                grav_index = grav_index + temp_index
+    #            print('grav_index',grav_index)
+                grav_resample.append(gra_temp)
+            if magn_index + interval <= len(magnLog) and grav_index < len(magnLog):        
+                mag_temp, temp_index = find_data_using_timestamp(objectData = magnLog[magn_index:magn_index+interval], timestamp = gyro[1], timeType = 1)
+                magn_index = magn_index + temp_index
+    #            print('magn_index',magn_index)
+                magn_resample.append(mag_temp)
+            else:
+                mag_temp, temp_index = find_data_using_timestamp(objectData = magnLog[magn_index:-1], timestamp = gyro[1], timeType = 1)
+                magn_index = magn_index + temp_index
+                magn_resample.append(mag_temp)
+        #    print('magn_index',magn_index)
+        
+        ahrs0, index = find_data_using_timestamp(objectData = raw_total_data_dic['ahrs'], timestamp = gyroLog[0][1], timeType = 1)   
+        q = euler2quatern([ahrs0[2], ahrs0[3], ahrs0[4]])
+        ahrs = [ahrs0[0], ahrs0[1], q[0], q[1], q[2], q[3]]
+        
+        #ahrs = [0, 0, 1, 0, 0, 0, 0] #换成欧拉角后为[0.0, -0.0, 0.0],表示将初始方向始终设置为0，需要用起始航向来校正
+                
+        angle_cor = math.radians(angle_cor)
+        mainAxis = mgAxis
+        q = ahrs[2:6]
+        init_Epoch = gyroLog[0][1] - samplePeriod
+        quaternion = []
+        orientationLog = []
+        for a, g, m in zip(grav_resample, gyroLog, magn_resample):
+        #for a, g, m in zip(gravLog, gyroLog, magnLog):
+            samplePeriod = g[1] - init_Epoch
+            if method == 'mahony':
+                q = poseEstimation.MahonyAHRS_IMU(g[2:5], a[2:5], m[2:5], q, mgAxis = mainAxis, twoKp = Kp, twoKi = Ki, samplePeriod = samplePeriod)
+            if method == 'madgwick':
+                q = poseEstimation.MadgwickAHRS_IMU(g[2:5], a[2:5], m[2:5], q, mgAxis = mainAxis, Beta = beta, samplePeriod = samplePeriod)
+            quaternion.append(q)
+            eu = quatern2euler(q)
+            phi = angleTransfermation.RadianDegreeMutualTransfer(eu[0], inputAngleType = 'r', outputAngleType = 'd')    
+            theta = angleTransfermation.RadianDegreeMutualTransfer(eu[1], inputAngleType = 'r', outputAngleType = 'd') 
+            heading = angleTransfermation.RadianDegreeMutualTransfer(eu[2] - angle_cor, inputAngleType = 'r', outputAngleType = 'd') #yaw
+            orientationLog.append([g[0], g[1], phi, theta, heading])
+            init_Epoch = g[1]
+        
+        return orientationLog
+    
+    
+#    def cal_OrientationLog2(self, raw_total_data_dic = {}, method = 'mahony', angleType = 'd', samplePeriod = 0.02, mgAxis='x', Kp=0.5, Ki=0.0, beta=0.1, angle_cor = 120):  
+#        '''
+#        功能： 与cal_OrientationLog不同，此函数要求磁力计和加速度计同时对航向进行校正
+#            此函数功能是利用IMU对航向角进行解算。解算的方法有两种MahonyAHRS和MadgwickAHRS
+#            加速度计和磁力计主要是用于校正陀螺仪积分求解姿态角
+#            AHRS是从手机传感器中直接记录得到的旋转矢量，因为姿态是从一个给定的初始角度（或者初始四元素）进行解算的，因此需要
+#            给姿态结算提供一个初始角度，而ahrs中的旋转矢量可以提供初值
+#            在进行姿态解算时，由于整个过程是以陀螺仪积分为主，加速度和磁力计进行校正，那么所求的航向的时间轴以陀螺仪的轴相同
+#        Parameters:
+#            acce: 加速度计测量值的list,在姿态计算中用于获取俯仰roll和横滚pitch
+#            magn: 磁力计测量值的list,在姿态计算中用于获取磁航向角yaw
+#            gyro: 陀螺仪测量值的list,用于积分求解旋转角
+#            ahrs: 存储旋转矢量的list，旋转矢量可以与四元素，欧拉角和旋转矩阵互换。这里主要用于提供四元素的初值
+#            method: 等于 'mahony' or 'madgwick' 表示用哪种方法进行姿态解算，MahonyAHRS和MadgwickAHRS
+#            angleType: 航向角的输出类型，可以是弧度也可以是角度
+#            samplePeriod:陀螺仪的采样周期，即多长时间采样一次
+#            mgAxis: 表示磁场的航向方向是哪一个轴，一般来说，水平时y轴为航向，此时解算主轴是x轴
+#            Kp: 这个参数属于MahonyAHRS方法，它是用来控制梯度下降的学习率，默认取0.5
+#            Ki: 这个参数属于MahonyAHRS方法，它表示是否对陀螺仪进行校正，默认取0
+#            Beta: 这个参数属于MadgwickAHRS方法，它表示用来控制梯度下降的学习率，默认取0.1
+#        Results:
+#            OrientationLog: apptime,sensortime,heading,pitch/roll[47.255, 52093.312, 158.711, -3.93, -0.9]    
+#        '''    
+#        
+#        gyroLog = raw_total_data_dic['gyro']
+#    #    acceLog = raw_total_data_dic['acce']
+#        magnLog = raw_total_data_dic['magn']   
+#        gravLog = raw_total_data_dic['acce']  #因为最初开始采集数据的时候没有重力，所以暂时用加速度代替
+#        
+#        grav_resample = []
+#        gyro_resample = []
+#        
+#        grav_index = 0
+#        gyro_index = 0
+#        
+#        for magn in raw_total_data_dic['magn']:
+#            if grav_index + 100 <= len(gravLog):        
+#                gra_temp, temp_index = find_data_using_timestamp(objectData = gravLog[grav_index:grav_index + 100], timestamp = magn[1], timeType = 1)
+#                grav_index = grav_index + temp_index
+#    #            print('grav_index',grav_index)
+#                grav_resample.append(gra_temp)
+#            else:
+#                gra_temp, temp_index = find_data_using_timestamp(objectData = gravLog[grav_index:-1], timestamp = magn[1], timeType = 1)
+#                grav_index = grav_index + temp_index
+#    #            print('grav_index',grav_index)
+#                grav_resample.append(gra_temp)
+#            if gyro_index + 100 <= len(magnLog):        
+#                gyr_temp, temp_index = find_data_using_timestamp(objectData = gyroLog[gyro_index:gyro_index + 100], timestamp = magn[1], timeType = 1)
+#                gyro_index = gyro_index + temp_index
+#    #            print('magn_index',magn_index)
+#                gyro_resample.append(gyr_temp)
+#            else:
+#                gyr_temp, temp_index = find_data_using_timestamp(objectData = gyroLog[gyro_index:-1], timestamp = magn[1], timeType = 1)
+#                gyro_index = gyro_index + temp_index
+#                gyro_resample.append(gyr_temp)
+#        #    print('magn_index',magn_index)
+#        
+#        ahrs = [0, 0, 1, 0, 0, 0, 0] #换成欧拉角后为[0.0, -0.0, 0.0],表示将初始方向始终设置为0，需要用起始航向来校正
+#    
+#        angle_cor = math.radians(angle_cor)
+#        mainAxis = mgAxis
+#        q = ahrs[2:6]
+#        init_Epoch = gyro_resample[0][1] - samplePeriod
+#        quaternion = []
+#        orientationLog = []
+#        for a, g, m in zip(grav_resample, gyro_resample, magnLog):
+#            samplePeriod = g[1] - init_Epoch
+#            if method == 'mahony':
+#                q = poseEstimation.MahonyAHRS_IMU(g[2:5], a[2:5], m[2:5], q, mgAxis = mainAxis, twoKp = Kp, twoKi = Ki, samplePeriod = samplePeriod)
+#            if method == 'madgwick':
+#                q = poseEstimation.MadgwickAHRS_IMU(g[2:5], a[2:5], m[2:5], q, mgAxis = mainAxis, Beta = beta, samplePeriod = samplePeriod)
+#            quaternion.append(q)
+#            eu = quatern2euler(q)
+#            phi = euler2Degree_Radian(eu[0], angleType)
+#            theta = euler2Degree_Radian(eu[1], angleType)
+#            heading = euler2Degree_Radian(eu[2] - angle_cor, angleType)  #yaw
+#            phi = angleTransfermation.RadianDegreeMutualTransfer(eu[0], inputAngleType = 'r', outputAngleType = 'd')    
+#            theta = angleTransfermation.RadianDegreeMutualTransfer(eu[1], inputAngleType = 'r', outputAngleType = 'd') 
+#            heading = angleTransfermation.RadianDegreeMutualTransfer(eu[2] - angle_cor, inputAngleType = 'r', outputAngleType = 'd') #yaw
+#            orientationLog.append([g[0], g[1], phi, theta, heading])
+#            init_Epoch = g[1]      
+#        
+#        return orientationLog
+    
+
+
+
+                   
+    
+    
+#    '''
+#    用于检测生成的orientationLog的数据是否满足要求
+#    再一次试验中发现，原始观测文件中orientationLog出现了某一段时间内没有数据
+#    解决方案是：先检测出是否有时间段内的数据缺失，然后用上一时刻的航向数据代替缺失段的航向数据。
+#    '''
+#    def check_orientationLog(self, orientationLog = [], walkingLog = [], angleType= 'd', timeType = 1):
+#        new_orientationLog = []
+#        heading = np.array(orientationLog)[:,4]
+#        times = np.array(orientationLog)[:,timeType].tolist() # there are two types of timestamps
+#        last_walking = []
+#        for walking in walkingLog:
+#            epoch_lStep = walking[timeType]
+#            epoch_cStep = walking[timeType+2]        
+#            #first get the headings with in [epoch_lStep, epoch_cStep]
+#            eff_time = [times.index(i) for i in times if i >= epoch_lStep and i < epoch_cStep]
+#            eff_heading = [heading[i] for i in eff_time]
+#            '''这里出现了一个问题，航向记录中出现了有段时间没有的情况，不知道是为什么？'''
+#            if len(eff_heading) == 0: #假如某一时刻没有记录上，就用前面那个时候的航向代替，即默认航向没有变化。
+#                last_epoch_lStep = last_walking[timeType]
+#                last_epoch_cStep = last_walking[timeType+2]        
+#                last_eff_time = [times.index(i) for i in times if i >= last_epoch_lStep and i < last_epoch_cStep]
+#                last_eff_heading = [heading[i] for i in last_eff_time]
+#                h = self.cal_AverageOfAngles(last_eff_heading, angleType)
+#                
+#                headingsLog.append([walking[timeType+1],walking[timeType+2],h,'mean'])
+##            print(eff_heading)
+#            if model == 'mean' and len(eff_heading) != 0:
+#                h = self.cal_AverageOfAngles(eff_heading, angleType)
+#                headingsLog.append([walking[timeType+1],walking[timeType+2],h,'mean'])
+#                last_heading = h
+#            
+#            last_walking = copy.deepcopy(walking)
+##            print('heading=',self.heading)
+                
+            
+    
+#     
+#print(pdrParameters().cal_AdditionOfTwoAngles(Angles=[300,100]))
+#print(pdrParameters().cal_AverageOfTwoAngles(Angles=[310,20]))    
+#print(pdrParameters().cal_DifferenceOfTwoAngles(Angles=[310,20]))    
+#print(pdrParameters().cal_DifferenceOfTwoAngles(Angles=[20,10]))    
+#print(pdrParameters().cal_AverageOfAngles(Angles=[320,310,330,10,320,310,320]))        
+#print(pdrParameters().cal_AverageOfAngles(Angles=[20,10,15,25,350,10]))      
+    
+#turningLog = pdrParameters().cal_turningLog(orientationLog, threshold = 20)    
+#cc=np.array(turningLog)[:, 2] == 1
+     
+#cc = pdrParameters().cal_turningLog([orientationLog[1929],orientationLog[1930],orientationLog[1931]], threshold = 15)
+    
+#pdrParameters().check_heading_detail(heading_detail)      
+#gyro_detail = pdrParameters().turningDetection(walkingLog, raw_total_data_dic['gyro'])   
+        
