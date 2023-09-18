@@ -1,0 +1,422 @@
+import torch
+from torch.utils.data import DataLoader,Dataset
+import re
+import numpy as np
+import  torch.nn as nn
+import math
+import sys
+#from dataset import IPINDataset
+print(torch.__version__)
+torch.set_default_tensor_type(torch.FloatTensor)
+from torch.utils.tensorboard import SummaryWriter
+#from split_dataset import splitedataset
+#from split_dataset import splitedataset_acce
+from torchvision import models
+import torch.nn.functional as F
+import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
+from PIL import Image
+import pandas
+
+
+def show_label_path(label):
+    label = np.array(label)
+    step0 = label[:,0,0:2]
+    step1 = label[:,1,0:2]
+    xy0 = tuple(i for i in step0)
+    xy1 = tuple(i for i in step1)
+    #xy  = np.concatenate((xy0,xy1),axis=1)
+    xy = [xy0,xy1]
+    x = np.arange(len(label))
+    fig,ax = plt.subplots()
+    ax.set_xlim(step0.min(), step0.max())
+    ax.set_ylim(step1.min(), step1.max())
+
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    line_segments = LineCollection(xy,array=x*10, linewidths=(0.5, 1, 1.5, 2),
+                                linestyle='solid')
+    ax.add_collection(line_segments)
+    ax.set_title('Line collection with masked arrays')
+    plt.show()
+    return 0
+
+def show_path(xy):
+    xy_line = []
+    for i in range(xy.shape[0]-1):
+        xy_line.append((xy[i],xy[i+1]))
+    # # label = np.array(label)
+    # # step0 = label[:,0,0:2]
+    # # step1 = label[:,1,0:2]
+    # # xy0 = tuple(i for i in step0)
+    # # xy1 = tuple(i for i in step1)
+    # # #xy  = np.concatenate((xy0,xy1),axis=1)
+    # # xy = [xy0,xy1]
+    # x = np.arange(len(label)) 
+    fig,ax = plt.subplots()
+    ax.set_xlim(xy[:,0].min(), xy[:,0].max())
+    ax.set_ylim(xy[:,1].min(), xy[:,1].max())
+
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    line_segments = LineCollection(xy_line,array=np.arange(len(xy_line))*10, linewidths=(0.5, 1, 1.5, 2),
+                                linestyle='solid')
+    ax.add_collection(line_segments)
+    ax.set_title('Line collection with masked arrays')
+    plt.show()
+    return 0
+
+
+def enhance_data(data,label):
+
+    label_class = get_angle_class(label)
+    numbers = np.unique(np.array(label_class),return_counts=True)
+    print('before enhance:',numbers)
+    mask = np.where( (label_class==0 )| (label_class==3)| (label_class==6) | (label_class==9),False,True)
+    mask_0369 = np.where( (label_class==0 )| (label_class==3)| (label_class==6) | (label_class==9),True,False)
+
+    data_masked = data[mask]
+    data_0369 = data[mask_0369]
+    label_masked = label[mask]
+    label_0369 = label[mask_0369]
+    data_repeated = np.repeat(data_masked,4,0)
+    label_repeated = np.repeat(label_masked,4,0)
+
+    noise = np.random.normal(0,0.06,(data_0369.shape[0],data_0369.shape[1]))
+    noise = noise + np.ones_like(noise)
+    data_0369 = np.multiply(data_0369,np.expand_dims(noise,axis=-1))
+    
+    # acce0 = data_repeated[:,:,6].flatten()
+    # plt.plot(acce0[:10000])
+    # plt.show()
+    noise = np.random.normal(0,0.05,(data_repeated.shape[0],data_repeated.shape[1]))
+    noise = noise + np.ones_like(noise)
+    data_repeated = np.multiply(data_repeated,np.expand_dims(noise,axis=-1))
+
+
+    data = np.concatenate([data,  data_repeated],axis=0)
+    label = np.concatenate([ label , label_repeated],axis=0)
+    
+    data = np.concatenate([data,  data_0369],axis=0)
+    label = np.concatenate([ label , label_0369],axis=0)
+
+    label_class = get_angle_class(label)
+    numbers = np.unique(np.array(label_class),return_counts=True)
+    print('before enhance:',numbers)
+
+    return data,label
+
+
+def get_length_class(label):
+    step0 = label[:,0,0:2]
+    step1 = label[:,1,0:2]
+    length = torch.sqrt((step1[:,0]-step0[:,0])**2+(step1[:,1]-step0[:,1])**2)
+    length_int_list = np.int16(length*100) // 3
+    lc = []
+    for length_int in length_int_list:
+        if length_int <2:
+            label_class = 0
+        elif length_int<8:
+            label_class = length_int-1
+        else:
+            label_class = 7
+        lc.append(label_class)
+    
+
+    return lc
+
+def get_angle_class(label):
+
+
+    angle = get_y_angele(label)
+
+    angle_class =  np.int16(angle)//15
+    
+    angle_class = np.where(angle_class==23,0,angle_class)
+    angle_class = list(map(lambda x: math.ceil(x /2) , angle_class))
+
+    length_int_list = np.array(angle_class)
+
+    
+
+    return length_int_list
+
+
+def get_y(label):
+    step0 = label[:,0,0:2]
+    step1 = label[:,1,0:2]
+    #length = torch.sqrt((step1[0]-step0[0])**2+(step1[1]-step0[1])**2)
+    #angle = torch.arctanh(1.0)
+    return step1-step0
+
+
+def get_y_length(label):
+    step0 = label[:,0,0:2]
+    step1 = label[:,1,0:2]
+    length = torch.sqrt((step1[:,0]-step0[:,0])**2+(step1[:,1]-step0[:,1])**2)
+    # x = torch.square(abs(step1[:,0]-step0[:,0]))
+    # y = torch.square(abs(step1[:,1]-step0[:,1]))
+    # z = torch.sqrt(x+y)
+    # angle = torch.round(torch.asin(y/z)/torch.pi*180)
+    return length
+
+
+def get_y_angele(label):
+    step0 = label[:,0,0:2]
+    step1 = label[:,1,0:2]
+
+    delta_x = step1[:,0] - step0[:,0]
+    delta_y = step1[:,1]- step0[:,1]
+
+    # 计算方位角（弧度）
+    bearing_rad = np.arctan2(delta_y, delta_x)
+
+    # 将弧度转换为度数
+    bearing_deg = np.degrees(bearing_rad)
+
+    # 调整方位角的范围为[0, 360)度
+    mask = np.where(bearing_deg < 0)
+    bearing_deg[mask]  = bearing_deg[mask] + 360
+    return bearing_deg  
+
+
+def get_MLP(input_dim,output_dim):
+    net = nn.Sequential(
+        nn.Flatten(),
+        nn.Linear(input_dim,1024),
+        nn.ReLU(),
+        nn.Dropout(p=0.3),
+        nn.Linear(1024,512),
+        nn.ReLU(),
+        nn.Dropout(p=0.3),
+        nn.Linear(512,output_dim)
+    )
+    return net
+
+
+def get_net(feature_num): 
+    net = nn.Linear(feature_num, 2)
+    for param in net.parameters():
+        nn.init.normal_(param, mean=0, std=0.01)
+    return net
+
+
+def get_resnet(output_feature_dim):
+    resnet34 = models.resnet34(pretrained = False)
+    
+    num_in = resnet34.fc.in_features
+    resnet34.fc = nn.Linear(num_in,output_feature_dim)
+    resnet34.conv1 = nn.Conv2d( 1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+    return resnet34
+
+
+class cnn_model(nn.Module):
+    def __init__(self) :
+        super(cnn_model,self).__init__()
+        self.cnn1 = nn.Conv2d(1,16,3,stride=1,padding=1)    
+        self.cnn2 = nn.Conv2d(16,64,3,stride=1,padding=1)
+        self.cnn3 = nn.Conv2d(64,128,kernel_size=2)
+        self.pooling = nn.MaxPool2d(2,2)
+        self.gelu = nn.Tanh()
+        self.linear =nn.Sequential(
+            nn.Linear(4608,512),
+            nn.Dropout(p=0.5),
+            nn.Linear(512,256),
+            nn.Dropout(p=0.6),
+            nn.Linear(256,36)
+
+        )
+
+    def forward(self,x):
+        bat_size = x.shape[0]
+        x = x.unsqueeze(1)
+        x = self.cnn1(x)
+        x = self.pooling(x)
+        x = self.gelu(x)
+        x = self.cnn2(x)
+        x = self.pooling(x)
+        x = self.gelu(x)
+        x = self.cnn3(x)
+        #x = self.pooling(x)
+        x = self.gelu(x)
+        x = x.squeeze(-1)
+        x = x.reshape(bat_size,-1)
+        x = self.linear(x)
+
+        return x
+    
+class get_LSTM(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        lstm_layer = nn.LSTM()
+    
+class get_transformer(nn.Module):
+    def __init__(self,input_dim=9, input_encoder_size=151,num_classes=12, num_layers=3,  hidden_dim=256,nhead=4,  dropout = 0.2) :
+        super(get_transformer,self).__init__()
+        #self.n_output = num_classes
+
+        self.fc = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(hidden_dim,128),
+            nn.ReLU(),
+            nn.Dropout(p=0.4),
+            nn.Linear(128,num_classes)
+        )
+        self.embedding = nn.Linear(input_dim, hidden_dim)
+        #self.pos_encoder = nn.Embedding(1000, hidden_size)  # Assuming max sequence length is 1000
+        self.transformer_encoder = models.vision_transformer.Encoder(     
+            seq_length= input_encoder_size,
+            num_layers= num_layers,
+            num_heads= nhead,
+            hidden_dim= hidden_dim,
+            mlp_dim= hidden_dim,
+            dropout= dropout,
+            attention_dropout= dropout,
+        )
+        self.class_token = nn.Parameter(torch.zeros(1, 1, hidden_dim))
+        
+    def forward(self,x):
+        n = x.shape[0]
+        #x = x.reshape(n,-1)
+        x = self.embedding(x)
+        batch_class_token = self.class_token.expand(n, -1, -1)
+        x = torch.cat([batch_class_token, x], dim=1)
+
+        x = self.transformer_encoder(x)
+
+        # Classifier "token" as used by standard language architectures
+        x = x[:, 0]
+
+        x = self.fc(x)
+        return x
+
+class SignalClassifier(nn.Module):
+    def __init__(self, input_dim, num_classes, num_layers, hidden_size, nhead, dropout=0.1):
+        super(SignalClassifier, self).__init__()
+
+        # Positional encoding
+        self.embedding = nn.Embedding(input_dim, hidden_size)
+        self.pos_encoder = nn.Embedding(1000, hidden_size)  # Assuming max sequence length is 1000
+        self.transformer_encoder = models.vision_transformer.Encoder(     
+            eq_length= input_dim,
+            num_layers= num_layers,
+            num_heads= nhead,
+            hidden_dim= int,
+            mlp_dim= int,
+            dropout= float,
+            attention_dropout= float,
+        )
+
+        # Fully connected layer for classification
+        self.fc = nn.Linear(hidden_size, num_classes)
+
+    def forward(self, x):
+        # Input signal should have shape (sequence_length, batch_size)
+        x = self.embedding(x)
+        seq_len, batch_size, hidden_size = x.size()
+
+        # Add positional encoding
+        positions = torch.arange(0, seq_len).unsqueeze(1).expand(seq_len, batch_size).to(x.device)
+        x += self.pos_encoder(positions)
+
+        # Transformer encoder
+        x = self.transformer_encoder(x,x)
+
+        # Take the mean over sequence length
+        x = x.mean(dim=0)
+
+        # Classification layer
+        x = self.fc(x)
+
+        return x
+
+
+def trail_run():
+    # Example usage:
+    # Initialize the model
+    input_dim = 64  # Input dimension (e.g., for one-hot encoded signal)
+    num_classes = 10  # Number of classes in your classification task
+    num_layers = 2  # Number of transformer layers
+    hidden_size = 256  # Hidden size of the transformer
+    nhead = 4  # Number of attention heads
+    dropout = 0.1  # Dropout probability
+
+    model = SignalClassifier(input_dim, num_classes, num_layers, hidden_size, nhead, dropout)
+
+    # Input signal (adjust dimensions as needed)
+    signal = torch.randint(0, input_dim, (100, 32))  # Sequence length 100, batch size 32
+
+    # Forward pass
+    logits = model(signal)
+
+    # Optionally, you can apply softmax to get probabilities
+    probabilities = torch.softmax(logits, dim=1)
+
+
+
+
+
+
+
+
+
+
+
+def load_bitmap(filename):
+    image = Image.open(filename)
+    array = np.array(image, dtype=bool)
+    return array
+
+def plot_map(map_array, dx=0.01, dy=0.01, limit_to_map=True):
+    plt.axis("equal")
+    
+    # plot map
+    xmax = map_array.shape[0] * dx # length of map along x axis
+    ymax = map_array.shape[1] * dy # length of map along y axis
+    cm = plt.imshow(np.rot90(map_array),
+               extent=[0, xmax, 0, ymax],cmap="binary_r", alpha=0.5)
+
+    if limit_to_map:
+        plt.xlim(0, xmax)
+        plt.ylim(0, ymax)
+
+def draw_BLE(file_csv_path):
+    file = pandas.read_csv(file_csv_path)
+    #pic = load_bitmap(pic_path)
+    xy = file.loc[:,'x':'y'].values
+    xy = np.array(xy)
+    FLD1_xy = xy[0:31]
+    FLU1_xy = xy[31:69]
+    FLU2_xy = xy[69:]
+
+    return FLD1_xy
+
+
+
+    
+
+
+
+
+def plot_path(xy,pic_path):
+    plt.figure()
+    #floor_name = data_dict[id_path]["df"]["floor"].values[0]
+    plot_map( load_bitmap(pic_path) )
+    #plt.show()
+    #cm = plt.scatter(data_dict[id_path]["df"]["x"], data_dict[id_path]["df"]["y"], c=data_dict[id_path]["df"]["%time"], alpha=0.5, s=0.5)
+    #plt.colorbar(cm, label="Timestamp(s)")
+    #plt.plot(data_dict[id_path]["df"]["x"].values[0], data_dict[id_path]["df"]["y"].values[0], "rx", label="start")
+    #plt.plot(data_dict[id_path]["df"]["x"].values[-1], data_dict[id_path]["df"]["y"].values[-1], "kx", label="end")
+    plt.scatter( xy[:,0],  xy[:,1],  color ="red", alpha=0.5, s=15)
+    plt.legend()
+    plt.xlabel("x (m)")
+    plt.ylabel("y (m)")
+    #plt.title(f"id_path : {id_path} | filename : {data_dict[id_path]['file_path']} | floor : {floor_name}")
+    plt.show()
+
+    return 0
+
+# FLU1 = '/home/qi/Desktop/IPIN/release/gis/FLD01_0.01_0.01.bmp'
+# FLU2 = '/home/qi/Desktop/IPIN/release/fig/Figure_2._Floor_map_of_FLU02.png'
+# FLD1 = '/home/qi/Desktop/IPIN/release/gis/FLD01_0.01_0.01.bmp'
+# BLE_pos = 'release/gis/beacon_list.csv'
+# fld1xy = draw_BLE(BLE_pos)
+# plot_path(fld1xy,FLD1)
